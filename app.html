@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LexArena</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- ══ LOGIN PAGE ══ -->
+  <div id="login-page">
+    <div class="auth-card">
+      <div class="logo">⚖ LexArena</div>
+      <div class="tagline">AI Courtroom Simulator · Indian Law</div>
+
+      <!-- SIGN IN FORM -->
+      <div id="signin-form">
+        <div class="field">
+          <label>Email</label>
+          <input type="email" id="login-email" placeholder="you@example.com">
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input type="password" id="login-password" placeholder="••••••••">
+        </div>
+        <div id="login-error" style="color:var(--danger);font-size:12px;margin-bottom:12px;min-height:16px"></div>
+        <button class="btn-primary" onclick="doLogin()">Sign in</button>
+        <div class="divider">or</div>
+        <button class="btn-google" onclick="showSignup()">Create new account →</button>
+        <div class="auth-note">Protected by Firebase Authentication · No credit card required</div>
+      </div>
+
+      <!-- SIGN UP FORM -->
+      <div id="signup-form" class="hidden">
+        <div class="field">
+          <label>Your name</label>
+          <input type="text" id="signup-name" placeholder="Siddharth Sharma">
+        </div>
+        <div class="field">
+          <label>Email</label>
+          <input type="email" id="signup-email" placeholder="you@example.com">
+        </div>
+        <div class="field">
+          <label>Password (min 6 characters)</label>
+          <input type="password" id="signup-password" placeholder="••••••••">
+        </div>
+        <div id="signup-error" style="color:var(--danger);font-size:12px;margin-bottom:12px;min-height:16px"></div>
+        <button class="btn-primary" onclick="doSignup()">Create account</button>
+        <div class="divider">or</div>
+        <button class="btn-google" onclick="showSignin()">Already have an account? Sign in →</button>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ══ MAIN APP (hidden until login) ══ -->
+  <div id="app" class="hidden">
+
+    <!-- ── SIDEBAR ── -->
+    <div class="sidebar">
+
+      <!-- Logo -->
+      <div class="sidebar-header">
+        <div class="logo">⚖ LexArena</div>
+        <div class="sidebar-sub">Courtroom Simulator</div>
+      </div>
+
+      <!-- New session button -->
+      <button class="btn-new" onclick="openModal()">
+        + &nbsp; New session
+      </button>
+
+      <!-- Session list label -->
+      <div class="sessions-label">Recent sessions</div>
+
+      <!-- Sessions will appear here -->
+      <div class="sessions-list" id="sessions-list">
+
+        <!-- Example session item (we'll make these dynamic later) -->
+        <div class="session-item active">
+          <div class="session-title">State vs Mehta — IPC 302</div>
+          <div class="session-meta">
+            <span class="badge badge-opposing">⚔ Opposing</span>
+            <span>2h ago</span>
+          </div>
+        </div>
+
+        <div class="session-item">
+          <div class="session-title">Property dispute — TPA 1882</div>
+          <div class="session-meta">
+            <span class="badge badge-judge">⚖ Judge</span>
+            <span>Yesterday</span>
+          </div>
+        </div>
+
+        <div class="session-item">
+          <div class="session-title">Bail application — CrPC 437</div>
+          <div class="session-meta">
+            <span class="badge badge-supporting">🤝 Supporting</span>
+            <span>3 days ago</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- User info at bottom -->
+      <div class="sidebar-footer">
+        <div class="user-row">
+          <div class="user-avatar" id="user-initials">PS</div>
+          <div>
+            <div class="user-name" id="user-name">Priya Sharma</div>
+            <div class="user-email" id="user-email">priya@example.com</div>
+          </div>
+          <button class="btn-signout" onclick="doLogout()">Sign out</button>
+        </div>
+      </div>
+
+    </div>
+
+
+    <!-- ── MAIN AREA ── -->
+    <div class="main">
+
+      <!-- Top bar -->
+      <div class="topbar">
+  <button class="hamburger" onclick="toggleSidebar()">☰</button>
+<div style="display:flex;align-items:center;gap:10px;flex:1">
+  <div class="session-title-display" id="session-title-display" onclick="makeEditable(this)" title="Click to rename">Select a session</div>
+  <div class="arg-counter hidden" id="arg-counter">
+    <span id="arg-count">0</span> arguments
+  </div>
+</div>
+        <!-- Score and Export button -->
+         <select class="difficulty-select" id="difficulty-select" onchange="changeDifficulty(this.value)" title="AI difficulty">
+  <option value="beginner">🟢 Beginner</option>
+  <option value="intermediate" selected>🟡 Intermediate</option>
+  <option value="expert">🔴 Expert</option>
+</select>
+      <button class="btn-score" onclick="showScoreCard()">📊 Score</button>
+<button class="btn-score" onclick="exportSession()">📥 Export</button>
+<button class="btn-score" onclick="shareSession()">🔗 Share</button>
+
+      <!-- Role switcher buttons -->
+      <div class="role-switcher">
+          <button class="role-btn" id="btn-judge" onclick="switchRole('judge')">⚖ Judge</button>
+          <button class="role-btn role-active-opposing" id="btn-opposing" onclick="switchRole('opposing')">⚔ Opposing</button>
+          <button class="role-btn" id="btn-supporting" onclick="switchRole('supporting')">🤝 Supporting</button>
+        </div>
+      </div>
+
+      <!-- Chat messages area -->
+<div class="chat-area" id="chat-area">
+
+  <!-- Welcome screen — shown when no session is active -->
+  <div id="welcome-screen">
+    <div class="welcome-icon">⚖</div>
+    <div class="welcome-title">Practice makes perfect</div>
+    <div class="welcome-sub">Argue real Indian law cases against an AI judge, opposing counsel, or senior advocate. Get instant feedback on every argument.</div>
+    <div class="quick-grid">
+
+      <div class="quick-card" onclick="quickStart('State vs Kumar — IPC 302 Murder Case', 'opposing', 'A murder case under IPC 302. The accused is alleged to have committed murder with premeditation. Argue for the defence against opposing counsel.')">
+        <div class="quick-card-title">⚔ Criminal defence</div>
+        <div class="quick-card-sub">IPC 302 murder case · argue for the accused</div>
+      </div>
+
+      <div class="quick-card" onclick="quickStart('Property Dispute — TPA 1882', 'judge', 'An ancestral property partition dispute under Transfer of Property Act 1882. Present your arguments before the judge.')">
+        <div class="quick-card-title">⚖ Before the judge</div>
+        <div class="quick-card-sub">Property dispute under TPA · present to court</div>
+      </div>
+
+      <div class="quick-card" onclick="quickStart('Consumer Forum Case — CPA 2019', 'opposing', 'A consumer complaint under Consumer Protection Act 2019 involving defective goods and mental harassment.')">
+        <div class="quick-card-title">🏛 Consumer forum</div>
+        <div class="quick-card-sub">Consumer Protection Act 2019 · cross-examination</div>
+      </div>
+
+      <div class="quick-card" onclick="quickStart('Bail Application — CrPC 437', 'judge', 'A bail application hearing under CrPC 437 for an accused in an economic offence case. Convince the Sessions Judge.')">
+        <div class="quick-card-title">📋 Bail application</div>
+        <div class="quick-card-sub">CrPC 437 bail hearing · convince the judge</div>
+      </div>
+
+    </div>
+  </div>
+     
+      </div>
+
+            <!-- Input area -->
+      <div class="input-area">
+        <div class="input-wrap">
+  <button class="attach-btn" onclick="document.getElementById('mid-session-file').click()" title="Attach PDF or image">
+    +
+  </button>
+  <input type="file" id="mid-session-file" accept=".pdf,image/*" style="display:none" onchange="handleMidSessionFile(event)">
+  <textarea 
+    id="msg-input" 
+    rows="1" 
+    placeholder="Present your argument, cite sections, make your case..."
+  ></textarea>
+  <button class="send-btn" id="send-btn" onclick="sendMessage()">
+    ➤
+  </button>
+</div>
+        <div class="input-hint">
+          Press Enter to send · Shift+Enter for new line · 
+          AI plays <span class="hint-role">opposing counsel</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+
+  <!-- ══ NEW SESSION MODAL (hidden) ══ -->
+  <div id="modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-title">New practice session</div>
+      <div class="modal-sub">Choose your case scenario and the AI role to practice against.</div>
+
+      <label class="field-label">Session name</label>
+<input class="field-input" id="new-session-name" placeholder="e.g. State vs Kumar — IPC 420 fraud case">
+
+      <label class="field-label">Case brief</label>
+      <textarea class="field-input field-textarea" id="new-session-brief" placeholder="Describe the case facts and what you want to practice..."></textarea>
+
+      <label class="field-label">AI plays the role of</label>
+      <div class="role-grid">
+        <div class="role-option" id="opt-judge" onclick="selectRole('judge')">
+          <div class="role-icon">⚖</div>
+          <div class="role-name" style="color:#7b9cff">Judge</div>
+          <div class="role-desc">Strict questioning, tests legal reasoning</div>
+        </div>
+        <div class="role-option role-sel-opposing" id="opt-opposing" onclick="selectRole('opposing')">
+          <div class="role-icon">⚔</div>
+          <div class="role-name" style="color:#e07a5f">Opposing counsel</div>
+          <div class="role-desc">Challenges arguments, cross-examines</div>
+        </div>
+        <div class="role-option" id="opt-supporting" onclick="selectRole('supporting')">
+          <div class="role-icon">🤝</div>
+          <div class="role-name" style="color:#52b788">Supporting counsel</div>
+          <div class="role-desc">Helps build stronger arguments</div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+       <button class="btn-primary" onclick="createSession()">Start session →</button>
+      </div>
+    </div>
+  </div>
+
+
+ <!-- Firebase -->
+  <script type="module" src="script.js"></script>
+<div class="mobile-overlay" id="mobile-overlay" onclick="closeSidebar()"></div>
+</body>
+</html>
