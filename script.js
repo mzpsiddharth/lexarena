@@ -2,7 +2,7 @@
 // FIREBASE SETUP
 // ══════════════════════════════════════════
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, addDoc, getDocs, query, orderBy, doc, updateDoc, arrayUnion, where } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, getDocs, query, orderBy, doc, updateDoc, arrayUnion, where, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 // YOUR FIREBASE CONFIG
@@ -825,11 +825,144 @@ window.showScoreCard = async function() {
     return;
   }
 
-  // Show loading modal first
+  // Check if saved score exists in Firebase
+  if (currentSessionId) {
+    try {
+      const sessionRef = doc(db, 'sessions', currentSessionId);
+      const sessionSnap = await getDoc(sessionRef);
+      if (sessionSnap.exists()) {
+        const data = sessionSnap.data();
+        if (data.savedReport && data.scoredAtArgCount === userMessages.length) {
+          // Show saved report
+          showSavedReport(data.savedReport, userMessages.length, data.scoredAtArgCount);
+          return;
+        }
+        if (data.savedReport && data.scoredAtArgCount < userMessages.length) {
+          // New arguments added — show saved report with refresh button active
+          showSavedReport(data.savedReport, userMessages.length, data.scoredAtArgCount);
+          return;
+        }
+      }
+    } catch (error) {
+      console.error('Error checking saved score:', error);
+    }
+  }
+
+  // No saved score — generate new one
+  await generateNewScore(userMessages);
+}
+
+// ══════════════════════════════════════════
+// SHOW SAVED REPORT
+// ══════════════════════════════════════════
+function showSavedReport(report, currentArgCount, scoredAtArgCount) {
+  const roleLabels = { judge: 'Judge', opposing: 'Opposing Counsel', supporting: 'Supporting Counsel' };
+  const sessionName = document.getElementById('session-title-display').textContent;
+  const scoreColor = report.score >= 8 ? '#4caf7d' : report.score >= 6 ? '#c9a96e' : '#e07a5f';
+  const hasNewArgs = currentArgCount > scoredAtArgCount;
+
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.style.zIndex = '300';
   overlay.style.overflowY = 'auto';
+
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:500px;max-height:90vh;overflow-y:auto">
+
+      <!-- Header -->
+      <div style="text-align:center;margin-bottom:24px">
+        <div style="font-size:36px;margin-bottom:10px">⚖</div>
+        <div style="font-family:var(--font-display);font-size:22px;margin-bottom:4px">Performance Report</div>
+        <div style="font-size:12px;color:var(--text3)">${sessionName} · vs ${roleLabels[currentRole]}</div>
+        ${hasNewArgs ? `<div style="font-size:11px;color:var(--accent);margin-top:6px;background:rgba(201,169,110,0.1);border-radius:20px;padding:4px 12px;display:inline-block">
+          ${currentArgCount - scoredAtArgCount} new argument(s) added — refresh to update score
+        </div>` : `<div style="font-size:11px;color:var(--text3);margin-top:6px">Saved report · Add more arguments to refresh</div>`}
+      </div>
+
+      <!-- Score -->
+      <div style="background:var(--surface2);border-radius:12px;padding:20px;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:24px">
+        <div style="text-align:center">
+          <div style="font-size:52px;font-family:var(--font-display);color:${scoreColor};line-height:1">${report.score}<span style="font-size:22px;color:var(--text3)">/10</span></div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px">Overall score</div>
+        </div>
+        <div style="width:1px;height:50px;background:var(--border)"></div>
+        <div style="text-align:center">
+          <div style="font-size:36px;font-weight:700;color:${scoreColor};line-height:1">${report.grade}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:4px">${report.verdict}</div>
+        </div>
+      </div>
+
+      <!-- Summary -->
+      <div style="background:var(--surface2);border-radius:10px;padding:16px;margin-bottom:16px;font-size:13px;color:var(--text2);line-height:1.7;border-left:3px solid var(--accent)">
+        ${report.summary}
+      </div>
+
+      <!-- Strengths -->
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;color:#4caf7d;letter-spacing:1px;text-transform:uppercase;font-weight:600;margin-bottom:10px">✓ What you did well</div>
+        ${report.strengths.map(s => `
+          <div class="sc-row"><div class="sc-dot" style="background:#4caf7d"></div><div class="sc-text">${s}</div></div>`).join('')}
+      </div>
+
+      <!-- Weaknesses -->
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;color:#e05555;letter-spacing:1px;text-transform:uppercase;font-weight:600;margin-bottom:10px">✗ Areas to improve</div>
+        ${report.weaknesses.map(w => `
+          <div class="sc-row"><div class="sc-dot" style="background:#e05555"></div><div class="sc-text">${w}</div></div>`).join('')}
+      </div>
+
+      <!-- Missed laws -->
+      ${report.missed_laws && report.missed_laws.length > 0 ? `
+      <div style="margin-bottom:16px">
+        <div style="font-size:11px;color:var(--accent);letter-spacing:1px;text-transform:uppercase;font-weight:600;margin-bottom:10px">📚 Laws you should have cited</div>
+        ${report.missed_laws.map(l => `
+          <div class="sc-row"><div class="sc-dot" style="background:var(--accent)"></div><div class="sc-text">${l}</div></div>`).join('')}
+      </div>` : ''}
+
+      <!-- Improvement -->
+      <div style="background:rgba(201,169,110,0.08);border:1px solid rgba(201,169,110,0.2);border-radius:10px;padding:14px;margin-bottom:20px">
+        <div style="font-size:11px;color:var(--accent);letter-spacing:1px;text-transform:uppercase;font-weight:600;margin-bottom:6px">→ For your next session</div>
+        <div style="font-size:13px;color:var(--text2);line-height:1.6">${report.improvement}</div>
+      </div>
+
+      <!-- Buttons -->
+      <div style="display:flex;gap:10px">
+        ${hasNewArgs ? `
+        <button class="btn-primary" style="flex:1" onclick="refreshScore(this)">
+          🔄 Refresh score
+        </button>` : `
+        <button class="btn-primary" style="flex:1;opacity:0.5;cursor:not-allowed" title="Add more arguments first">
+          🔄 Add arguments to refresh
+        </button>`}
+        <button class="btn-cancel" style="flex:1" onclick="this.closest('.modal-overlay').remove()">Close</button>
+      </div>
+
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) overlay.remove();
+  });
+}
+
+// ══════════════════════════════════════════
+// REFRESH SCORE
+// ══════════════════════════════════════════
+window.refreshScore = async function(btn) {
+  const overlay = btn.closest('.modal-overlay');
+  overlay.remove();
+  const userMessages = messages.filter(m => m.role === 'user');
+  await generateNewScore(userMessages);
+}
+
+// ══════════════════════════════════════════
+// GENERATE NEW SCORE
+// ══════════════════════════════════════════
+async function generateNewScore(userMessages) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.style.zIndex = '300';
   overlay.innerHTML = `
     <div class="modal" style="max-width:460px;text-align:center;padding:40px">
       <div style="font-size:40px;margin-bottom:16px">⚖</div>
@@ -842,14 +975,12 @@ window.showScoreCard = async function() {
   `;
   document.body.appendChild(overlay);
 
-  // Animate progress bar
   setTimeout(function() {
     const prog = document.getElementById('score-progress');
     if (prog) prog.style.width = '90%';
   }, 100);
 
   try {
-    // Build conversation transcript
     const roleLabels = { judge: 'Judge', opposing: 'Opposing Counsel', supporting: 'Supporting Counsel' };
     const transcript = messages.map(function(msg) {
       const speaker = msg.role === 'user' ? 'STUDENT/LAWYER' : roleLabels[currentRole].toUpperCase();
@@ -858,7 +989,6 @@ window.showScoreCard = async function() {
 
     const sessionName = document.getElementById('session-title-display').textContent;
 
-    // Ask Groq to analyze the performance
     const analysisPrompt = `You are an expert Indian law professor and senior advocate with 30 years of experience. Analyze this courtroom practice session and provide a detailed performance report.
 
 SESSION: ${sessionName}
@@ -871,15 +1001,15 @@ Provide a performance report in EXACTLY this JSON format, nothing else:
 {
   "score": <number 1-10>,
   "grade": "<A+/A/B+/B/C+/C>",
-  "summary": "<2-3 sentence overall assessment of the student's performance>",
+  "summary": "<2-3 sentence overall assessment>",
   "strengths": ["<specific strength 1>", "<specific strength 2>", "<specific strength 3>"],
   "weaknesses": ["<specific weakness 1>", "<specific weakness 2>", "<specific weakness 3>"],
-  "missed_laws": ["<specific section or case they should have cited 1>", "<specific section or case 2>"],
-  "improvement": "<one specific actionable advice for their next session>",
+  "missed_laws": ["<specific section or case 1>", "<specific section or case 2>"],
+  "improvement": "<one specific actionable advice>",
   "verdict": "<one line dramatic verdict like a judge would give>"
 }
 
-Base the score on: argument structure, correct citation of Indian law, logical reasoning, anticipation of counterarguments, and courtroom etiquette. Be honest and specific — mention actual arguments from the transcript.`;
+Be honest and specific — mention actual arguments from the transcript.`;
 
     const response = await fetch(GROQ_API_URL, {
       method: 'POST',
@@ -897,87 +1027,28 @@ Base the score on: argument structure, correct citation of Indian law, logical r
 
     const data = await response.json();
     let reportText = data.choices[0].message.content;
-
-    // Clean JSON — remove markdown fences if present
     reportText = reportText.replace(/```json/g, '').replace(/```/g, '').trim();
-
     const report = JSON.parse(reportText);
 
-    // Score color
-    const scoreColor = report.score >= 8 ? '#4caf7d' : report.score >= 6 ? '#c9a96e' : '#e07a5f';
-
-    // Build modal content
-    overlay.innerHTML = `
-      <div class="modal" style="max-width:500px;max-height:90vh;overflow-y:auto">
-
-        <!-- Header -->
-        <div style="text-align:center;margin-bottom:24px">
-          <div style="font-size:36px;margin-bottom:10px">⚖</div>
-          <div style="font-family:var(--font-display);font-size:22px;margin-bottom:4px">Performance Report</div>
-          <div style="font-size:12px;color:var(--text3)">${sessionName} · vs ${roleLabels[currentRole]}</div>
-        </div>
-
-        <!-- Score -->
-        <div style="background:var(--surface2);border-radius:12px;padding:20px;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:24px">
-          <div style="text-align:center">
-            <div style="font-size:52px;font-family:var(--font-display);color:${scoreColor};line-height:1">${report.score}<span style="font-size:22px;color:var(--text3)">/10</span></div>
-            <div style="font-size:11px;color:var(--text3);margin-top:4px">Overall score</div>
-          </div>
-          <div style="width:1px;height:50px;background:var(--border)"></div>
-          <div style="text-align:center">
-            <div style="font-size:36px;font-weight:700;color:${scoreColor};line-height:1">${report.grade}</div>
-            <div style="font-size:12px;color:var(--text2);margin-top:4px">${report.verdict}</div>
-          </div>
-        </div>
-
-        <!-- Summary -->
-        <div style="background:var(--surface2);border-radius:10px;padding:16px;margin-bottom:16px;font-size:13px;color:var(--text2);line-height:1.7;border-left:3px solid var(--accent)">
-          ${report.summary}
-        </div>
-
-        <!-- Strengths -->
-        <div style="margin-bottom:16px">
-          <div style="font-size:11px;color:#4caf7d;letter-spacing:1px;text-transform:uppercase;font-weight:600;margin-bottom:10px">✓ What you did well</div>
-          ${report.strengths.map(s => `
-            <div class="sc-row">
-              <div class="sc-dot" style="background:#4caf7d"></div>
-              <div class="sc-text">${s}</div>
-            </div>`).join('')}
-        </div>
-
-        <!-- Weaknesses -->
-        <div style="margin-bottom:16px">
-          <div style="font-size:11px;color:#e05555;letter-spacing:1px;text-transform:uppercase;font-weight:600;margin-bottom:10px">✗ Areas to improve</div>
-          ${report.weaknesses.map(w => `
-            <div class="sc-row">
-              <div class="sc-dot" style="background:#e05555"></div>
-              <div class="sc-text">${w}</div>
-            </div>`).join('')}
-        </div>
-
-        <!-- Missed laws -->
-        ${report.missed_laws && report.missed_laws.length > 0 ? `
-        <div style="margin-bottom:16px">
-          <div style="font-size:11px;color:var(--accent);letter-spacing:1px;text-transform:uppercase;font-weight:600;margin-bottom:10px">📚 Laws you should have cited</div>
-          ${report.missed_laws.map(l => `
-            <div class="sc-row">
-              <div class="sc-dot" style="background:var(--accent)"></div>
-              <div class="sc-text">${l}</div>
-            </div>`).join('')}
-        </div>` : ''}
-
-        <!-- Improvement -->
-        <div style="background:rgba(201,169,110,0.08);border:1px solid rgba(201,169,110,0.2);border-radius:10px;padding:14px;margin-bottom:20px">
-          <div style="font-size:11px;color:var(--accent);letter-spacing:1px;text-transform:uppercase;font-weight:600;margin-bottom:6px">→ For your next session</div>
-          <div style="font-size:13px;color:var(--text2);line-height:1.6">${report.improvement}</div>
-        </div>
-
-        <button class="btn-primary" onclick="this.closest('.modal-overlay').remove()">Close report</button>
-      </div>
-    `;
+    // Save to Firebase
+    if (currentSessionId) {
+      try {
+        const sessionRef = doc(db, 'sessions', currentSessionId);
+        await updateDoc(sessionRef, {
+          savedReport: report,
+          scoredAtArgCount: userMessages.length
+        });
+      } catch (error) {
+        console.error('Error saving report:', error);
+      }
+    }
 
     // Submit to leaderboard
-    submitToLeaderboard(report.score, sessionName, currentRole);
+    const sessionName2 = document.getElementById('session-title-display').textContent;
+    submitToLeaderboard(report.score, sessionName2, currentRole);
+
+    overlay.remove();
+    showSavedReport(report, userMessages.length, userMessages.length);
 
   } catch (error) {
     console.error('Score card error:', error);
@@ -985,19 +1056,13 @@ Base the score on: argument structure, correct citation of Indian law, logical r
       <div class="modal" style="max-width:400px;text-align:center">
         <div style="font-size:36px;margin-bottom:12px">⚠️</div>
         <div class="modal-title" style="margin-bottom:8px">Could not generate report</div>
-        <div style="font-size:13px;color:var(--text2);margin-bottom:20px">Please try again after a few more arguments.</div>
+        <div style="font-size:13px;color:var(--text2);margin-bottom:20px">Please try again.</div>
         <button class="btn-primary" onclick="this.closest('.modal-overlay').remove()">Close</button>
       </div>
     `;
   }
-
-  // Close on background click
-  overlay.addEventListener('click', function(e) {
-    if (e.target === overlay) overlay.remove();
-  });
 }
 
-window.showScoreCard = showScoreCard;
 // ══════════════════════════════════════════
 // MOBILE SIDEBAR TOGGLE
 // ══════════════════════════════════════════
