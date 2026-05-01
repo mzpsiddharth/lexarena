@@ -620,24 +620,43 @@ function showWelcomeMessage() {
 // PARSE FEEDBACK
 // ══════════════════════════════════════════
 function parseFeedback(fullText) {
-  const feedbackIndex = fullText.indexOf('FEEDBACK:');
+  // Try multiple possible feedback markers
+  const markers = ['FEEDBACK:', 'Feedback:', '**FEEDBACK:**', '**Feedback:**'];
+  let feedbackIndex = -1;
+  
+  for (const marker of markers) {
+    const idx = fullText.indexOf(marker);
+    if (idx !== -1) {
+      feedbackIndex = idx;
+      break;
+    }
+  }
+
   if (feedbackIndex === -1) return { mainText: fullText.trim(), feedback: null };
+
   const mainText = fullText.substring(0, feedbackIndex).trim();
   const feedbackText = fullText.substring(feedbackIndex);
+
+  // Try multiple label formats
+  function extractFlexible(text, labels) {
+    for (const label of labels) {
+      const index = text.indexOf(label);
+      if (index !== -1) {
+        return text.substring(index + label.length).split('\n')[0].trim()
+          .replace(/^\*+/, '').replace(/\*+$/, '').trim();
+      }
+    }
+    return '';
+  }
+
   return {
     mainText,
     feedback: {
-      good: extractLine(feedbackText, 'GOOD:'),
-      gap: extractLine(feedbackText, 'GAP:'),
-      tip: extractLine(feedbackText, 'TIP:')
+      good: extractFlexible(feedbackText, ['GOOD:', 'Good:', '**GOOD:**', '**Good:**']),
+      gap:  extractFlexible(feedbackText, ['GAP:', 'Gap:', '**GAP:**', '**Gap:**']),
+      tip:  extractFlexible(feedbackText, ['TIP:', 'Tip:', '**TIP:**', '**Tip:**'])
     }
   };
-}
-
-function extractLine(text, label) {
-  const index = text.indexOf(label);
-  if (index === -1) return '';
-  return text.substring(index + label.length).split('\n')[0].trim();
 }
 
 
