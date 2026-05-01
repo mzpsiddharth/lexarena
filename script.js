@@ -21,7 +21,7 @@ const auth = getAuth(firebaseApp);
 
 
 // ══════════════════════════════════════════
-// GEMINI API
+// GROQ API
 // ══════════════════════════════════════════
 const GROQ_API_KEY = "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";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
@@ -468,7 +468,7 @@ window.sendMessage = async function() {
 
 
 // ══════════════════════════════════════════
-// GEMINI API CALL
+// GROQ API CALL
 // ══════════════════════════════════════════
 async function getAIResponse(userMessage) {
   isLoading = true;
@@ -527,15 +527,15 @@ async function getAIResponse(userMessage) {
     const errorStr = JSON.stringify(error) + (error.message || '');
 
     if (errorStr.includes('429')) {
-      errorMsg = '⏳ Too many requests — Gemini is rate limiting. Retrying in 15 seconds...';
+      errorMsg = '⏳ Too many requests — GROQ is rate limiting. Retrying in 15 seconds...';
       showRetry = true;
       retryDelay = 15000;
     } else if (errorStr.includes('503') || errorStr.includes('502')) {
-      errorMsg = '🔧 Gemini servers are temporarily overloaded. Retrying in 20 seconds...';
+      errorMsg = '🔧 GROQ servers are temporarily overloaded. Retrying in 20 seconds...';
       showRetry = true;
       retryDelay = 20000;
     } else if (errorStr.includes('401') || errorStr.includes('403')) {
-      errorMsg = '🔑 API key issue. Please check your Gemini API key.';
+      errorMsg = '🔑 API key issue. Please check your GROQ API key.';
       showRetry = false;
     } else if (errorStr.includes('fetch') || errorStr.includes('network') || errorStr.includes('Failed')) {
       errorMsg = '📶 Network error. Please check your internet connection.';
@@ -1195,73 +1195,6 @@ window.makeEditable = function(el) {
   el.addEventListener('blur', saveRename, { once: true });
 }
 
-// ══════════════════════════════════════════
-// PDF UPLOAD AND TEXT EXTRACTION
-// ══════════════════════════════════════════
-let extractedPdfText = '';
-
-window.handlePdfUpload = async function(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-
-  const statusEl = document.getElementById('pdf-status');
-  const uploadArea = document.getElementById('pdf-upload-area');
-
-  if (file.size > 10 * 1024 * 1024) {
-    statusEl.style.color = 'var(--danger)';
-    statusEl.textContent = 'File too large. Please upload a PDF under 10MB.';
-    return;
-  }
-
-  statusEl.style.color = 'var(--accent)';
-  statusEl.textContent = '⏳ Reading PDF...';
-
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-
-    const pdfjsLib = window['pdfjs-dist/build/pdf'];
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    const totalPages = pdf.numPages;
-
-    let fullText = '';
-    const pagesToRead = Math.min(totalPages, 10);
-
-    for (let i = 1; i <= pagesToRead; i++) {
-      const page = await pdf.getPage(i);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items.map(item => item.str).join(' ');
-      fullText += pageText + '\n';
-    }
-
-    if (!fullText.trim()) {
-      statusEl.style.color = 'var(--danger)';
-      statusEl.textContent = 'Could not extract text. Try a text-based PDF (not scanned).';
-      return;
-    }
-
-    extractedPdfText = fullText.substring(0, 3000);
-
-    uploadArea.classList.add('has-file');
-    uploadArea.querySelector('.pdf-upload-icon').textContent = '✅';
-    uploadArea.querySelector('.pdf-upload-text').textContent = file.name;
-    uploadArea.querySelector('.pdf-upload-sub').textContent = totalPages + ' pages · Text extracted successfully';
-
-    statusEl.style.color = 'var(--supporting)';
-    statusEl.textContent = '✓ PDF read successfully — AI will use this as the case brief';
-
-    const briefInput = document.getElementById('new-session-brief');
-    if (!briefInput.value.trim()) {
-      briefInput.placeholder = 'PDF uploaded — you can add extra notes here or leave blank';
-    }
-
-  } catch (error) {
-    console.error('PDF Error:', error);
-    statusEl.style.color = 'var(--danger)';
-    statusEl.textContent = 'Error reading PDF. Make sure it is a valid PDF file.';
-  }
-}
 
 // ══════════════════════════════════════════
 // MID SESSION FILE UPLOAD
@@ -1319,14 +1252,14 @@ window.handleMidSessionFile = async function(event) {
       }, 2000);
 
     } else if (isImage) {
-      // Convert image to base64 and send to Gemini
+      // Convert image to base64 and send to GROQ
       const base64 = await fileToBase64(file);
       const mimeType = file.type;
 
       // Add image message to chat visually
       addImageToChat(base64, file.name);
 
-      // Send image to Gemini with vision
+      // Send image to GROQ with vision
       await sendImageToGemini(base64, mimeType);
     }
 
