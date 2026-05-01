@@ -23,9 +23,8 @@ const auth = getAuth(firebaseApp);
 // ══════════════════════════════════════════
 // GEMINI API
 // ══════════════════════════════════════════
-const API_KEY = "AIzaSyCYUXGpoSUw-y5yWh6J-dzG51dpJNkloXg";
-const API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + API_KEY;
-
+const GROQ_API_KEY = "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";
+const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 // ══════════════════════════════════════════
 // APP STATE
@@ -482,22 +481,33 @@ async function getAIResponse(userMessage) {
     const recentMessages = messages.slice(-10);
     const conversationHistory = recentMessages.map(function(msg) {
       return {
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.text }]
+        role: msg.role === 'user' ? 'user' : 'assistant',
+        content: msg.text
       };
     });
 
-    const response = await fetch(API_URL, {
+    const response = await fetch(GROQ_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + GROQ_API_KEY
+      },
       body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemPrompts[currentRole].replace('{DIFFICULTY}', difficultyInstructions[currentDifficulty]) }] },
-        contents: conversationHistory
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompts[currentRole].replace('{DIFFICULTY}', difficultyInstructions[currentDifficulty])
+          },
+          ...conversationHistory
+        ],
+        max_tokens: 500,
+        temperature: 0.7
       })
     });
 
     const data = await response.json();
-    const aiText = data.candidates[0].content.parts[0].text;
+    const aiText = data.choices[0].message.content;
     const parsed = parseFeedback(aiText);
 
     messages.push({ role: 'ai', text: parsed.mainText, feedback: parsed.feedback });
@@ -1229,23 +1239,33 @@ async function sendImageToGemini(base64, mimeType) {
   showTypingIndicator();
 
   try {
-    const response = await fetch(API_URL, {
+    const response = await fetch(GROQ_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + GROQ_API_KEY
+      },
       body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemPrompts[currentRole] }] },
-        contents: [{
-          role: 'user',
-          parts: [
-            { text: 'I am sharing an image related to our case. Please analyze it in the context of Indian law and our current session.' },
-            { inline_data: { mime_type: mimeType, data: base64 } }
-          ]
-        }]
+        model: 'llama-3.2-11b-vision-preview',
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompts[currentRole].replace('{DIFFICULTY}', difficultyInstructions[currentDifficulty])
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'I am sharing an image related to our case. Please analyze it in the context of Indian law.' },
+              { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } }
+            ]
+          }
+        ],
+        max_tokens: 500
       })
     });
 
     const data = await response.json();
-    const aiText = data.candidates[0].content.parts[0].text;
+    const aiText = data.choices[0].message.content;
     const parsed = parseFeedback(aiText);
 
     messages.push({ role: 'ai', text: parsed.mainText, feedback: parsed.feedback });
