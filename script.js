@@ -316,6 +316,8 @@ window.createSession = async function() {
 
     document.getElementById('chat-area').innerHTML = '';
     messages = [];
+    caseSummary = '';
+  messagesSinceLastSummary = 0;
     updateArgCounter();
     document.getElementById('session-title-display').textContent = sessionName;
 
@@ -419,6 +421,9 @@ async function loadSession(sessionId, name, role, element) {
             messages.push(msg);
           });
           updateArgCounter();
+          // Load saved case summary if exists
+        caseSummary = session.caseSummary || '';
+        messagesSinceLastSummary = 0;
         }
       }
     });
@@ -460,6 +465,10 @@ window.sendMessage = async function() {
   addMessageToChat('user', text, null);
   messages.push({ role: 'user', text });
   updateArgCounter();
+  messagesSinceLastSummary++;
+  if (messagesSinceLastSummary >= SUMMARY_UPDATE_INTERVAL) {
+    updateCaseSummary();
+  }
   await saveMessageToFirebase('user', text, null);
   setTimeout(function() {
     getAIResponse(text);
@@ -477,14 +486,20 @@ async function getAIResponse(userMessage) {
   showTypingIndicator();
 
   try {
-    // Only send last 10 messages to avoid request being too large
-    const recentMessages = messages.slice(-10);
+    // Use summary + last 5 messages for efficient context
+    const recentMessages = messages.slice(-5);
     const conversationHistory = recentMessages.map(function(msg) {
       return {
         role: msg.role === 'user' ? 'user' : 'assistant',
         content: msg.text
       };
     });
+
+    // Prepend case summary to system prompt if available
+    const systemPromptWithSummary = caseSummary
+      ? systemPrompts[currentRole].replace('{DIFFICULTY}', difficultyInstructions[currentDifficulty]) +
+        '\n\nCASE SUMMARY SO FAR:\n' + caseSummary
+      : systemPrompts[currentRole].replace('{DIFFICULTY}', difficultyInstructions[currentDifficulty]);
 
     const response = await fetch(GROQ_API_URL, {
       method: 'POST',
@@ -497,7 +512,7 @@ async function getAIResponse(userMessage) {
         messages: [
           {
             role: 'system',
-            content: systemPrompts[currentRole].replace('{DIFFICULTY}', difficultyInstructions[currentDifficulty])
+            content: systemPromptWithSummary
           },
           ...conversationHistory
         ],
@@ -1662,5 +1677,61 @@ async function submitToLeaderboard(score, sessionName, role) {
     });
   } catch (error) {
     console.error('Leaderboard error:', error);
+  }
+}
+
+
+// ══════════════════════════════════════════
+// CASE SUMMARY MEMORY
+// ══════════════════════════════════════════
+let caseSummary = '';
+let messagesSinceLastSummary = 0;
+const SUMMARY_UPDATE_INTERVAL = 5; // Update summary every 5 exchanges
+
+async function updateCaseSummary() {
+  if (messages.length < 6) return; // Not enough messages yet
+
+  try {
+    const roleLabels = { judge: 'Judge', opposing: 'Opposing Counsel', supporting: 'Supporting Counsel' };
+    const recentExchanges = messages.slice(-10).map(function(msg) {
+      const speaker = msg.role === 'user' ? 'LAWYER' : roleLabels[currentRole];
+      return speaker + ': ' + msg.text;
+    }).join('\n\n');
+
+    const summaryPrompt = `Summarize this Indian courtroom practice session in 3 sentences maximum. Focus on: what case is being argued, what arguments the lawyer has made so far, and what key legal points have been raised or missed. Be specific about Indian law sections and cases mentioned.
+
+EXCHANGES:
+${recentExchanges}
+
+Respond with ONLY the summary, no preamble.`;
+
+    const response = await fetch(GROQ_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + GROQ_API_KEY
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: summaryPrompt }],
+        max_tokens: 150,
+        temperature: 0.3
+      })
+    });
+
+    const data = await response.json();
+    caseSummary = data.choices[0].message.content.trim();
+
+    // Save summary to Firebase
+    if (currentSessionId) {
+      const sessionRef = doc(db, 'sessions', currentSessionId);
+      await updateDoc(sessionRef, { caseSummary: caseSummary });
+    }
+
+    messagesSinceLastSummary = 0;
+    console.log('Case summary updated:', caseSummary);
+
+  } catch (error) {
+    console.error('Summary update error:', error);
   }
 }
