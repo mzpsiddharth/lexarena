@@ -23,8 +23,9 @@ const auth = getAuth(firebaseApp);
 // ══════════════════════════════════════════
 // GROQ API
 // ══════════════════════════════════════════
-const GROQ_API_KEY = "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";
-const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+// Requests go through /api/chat (Vercel serverless proxy).
+// The actual API key lives in Vercel environment variables — never here.
+const GROQ_API_URL = "/api/chat";
 
 // ══════════════════════════════════════════
 // APP STATE
@@ -308,7 +309,8 @@ window.createSession = async function() {
       brief: sessionBrief,
       messages: [],
       createdAt: new Date(),
-      userId: currentUser.uid
+      userId: currentUser.uid,
+      userName: currentUser.displayName || 'Anonymous'
     });
 
     currentSessionId = docRef.id;
@@ -404,29 +406,34 @@ async function loadSession(sessionId, name, role, element) {
   hideWelcomeScreen();
   messages = [];
 
+  // Reset summary state whenever we switch sessions
+  caseSummary = '';
+  messagesSinceLastSummary = 0;
+
   try {
-    const q = query(collection(db, 'sessions'), where('userId', '==', currentUser.uid));
-    const snapshot = await getDocs(q);
+    // Direct single-doc fetch — no need to scan all user sessions
+    const sessionRef = doc(db, 'sessions', sessionId);
+    const sessionSnap = await getDoc(sessionRef);
 
-    snapshot.forEach(function(docSnap) {
-      if (docSnap.id === sessionId) {
-        const session = docSnap.data();
-        const savedMessages = session.messages || [];
+    if (!sessionSnap.exists()) {
+      showWelcomeMessage();
+      return;
+    }
 
-        if (savedMessages.length === 0) {
-          showWelcomeMessage();
-        } else {
-          savedMessages.forEach(function(msg) {
-            addMessageToChat(msg.role, msg.text, msg.feedback || null);
-            messages.push(msg);
-          });
-          updateArgCounter();
-          // Load saved case summary if exists
-        caseSummary = session.caseSummary || '';
-        messagesSinceLastSummary = 0;
-        }
-      }
-    });
+    const session = sessionSnap.data();
+    const savedMessages = session.messages || [];
+
+    if (savedMessages.length === 0) {
+      showWelcomeMessage();
+    } else {
+      savedMessages.forEach(function(msg) {
+        addMessageToChat(msg.role, msg.text, msg.feedback || null);
+        messages.push(msg);
+      });
+      updateArgCounter();
+      caseSummary = session.caseSummary || '';
+      messagesSinceLastSummary = 0;
+    }
   } catch (error) {
     console.error('Error loading session:', error);
     showWelcomeMessage();
@@ -455,9 +462,17 @@ async function saveMessageToFirebase(role, text, feedback) {
 // ══════════════════════════════════════════
 window.sendMessage = async function() {
   if (isLoading) return;
+
+  // Disable immediately — prevents double-tap / double-click race
+  const sendBtn = document.getElementById('send-btn');
+  sendBtn.disabled = true;
+
   const input = document.getElementById('msg-input');
   const text = input.value.trim();
-  if (!text) return;
+  if (!text) {
+    sendBtn.disabled = false;
+    return;
+  }
 
   input.value = '';
   input.style.height = 'auto';
@@ -470,9 +485,7 @@ window.sendMessage = async function() {
     updateCaseSummary();
   }
   await saveMessageToFirebase('user', text, null);
-  setTimeout(function() {
-    getAIResponse(text);
-  }, 2000);
+  getAIResponse(text);
 }
 
 
@@ -505,7 +518,6 @@ async function getAIResponse(userMessage) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + GROQ_API_KEY
       },
       body: JSON.stringify({
         model: 'llama-3.3-70b-versatile',
@@ -627,7 +639,13 @@ function showWelcomeMessage() {
     judge: "This Court is now in session. You may commence your submissions. The Court expects proper citations and precise section references.\n\nProceed, counsel.",
     supporting: "I have reviewed your brief. There is good material here to work with.\n\nTell me your current argument and I will help you make it airtight."
   };
-  addMessageToChat('ai', welcomes[currentRole], null);
+  const welcomeText = welcomes[currentRole];
+  addMessageToChat('ai', welcomeText, null);
+
+  // Persist opening message so it survives refresh
+  const welcomeMsg = { role: 'ai', text: welcomeText, feedback: null };
+  messages.push(welcomeMsg);
+  saveMessageToFirebase('ai', welcomeText, null);
 }
 
 
@@ -799,8 +817,39 @@ function escapeHtml(text) {
 // DELETE SESSION
 // ══════════════════════════════════════════
 async function deleteSession(sessionId, sessionElement) {
-  // Ask user to confirm first
-  const confirmed = confirm('Delete this session? This cannot be undone.');
+  // In-app confirmation modal — replaces jarring native confirm()
+  const confirmed = await new Promise(function(resolve) {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.zIndex = '400';
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:380px;text-align:center">
+        <div style="font-size:32px;margin-bottom:12px">🗑</div>
+        <div class="modal-title" style="margin-bottom:8px">Delete session?</div>
+        <div style="font-size:13px;color:var(--text2);margin-bottom:24px;line-height:1.6">
+          This will permanently delete this session and all its messages. This cannot be undone.
+        </div>
+        <div style="display:flex;gap:10px">
+          <button class="btn-primary" id="confirm-delete-btn" style="flex:1;background:var(--danger)">Delete</button>
+          <button class="btn-cancel" id="cancel-delete-btn" style="flex:1">Cancel</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('#confirm-delete-btn').addEventListener('click', function() {
+      overlay.remove();
+      resolve(true);
+    });
+    overlay.querySelector('#cancel-delete-btn').addEventListener('click', function() {
+      overlay.remove();
+      resolve(false);
+    });
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) { overlay.remove(); resolve(false); }
+    });
+  });
+
   if (!confirmed) return;
 
   try {
@@ -1030,7 +1079,6 @@ Be honest and specific — mention actual arguments from the transcript.`;
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + GROQ_API_KEY
       },
       body: JSON.stringify({
         model: 'llama-3.3-70b-versatile',
@@ -1121,10 +1169,13 @@ window.quickStart = async function(name, role, brief) {
       brief: brief,
       messages: [],
       createdAt: new Date(),
-      userId: currentUser.uid
+      userId: currentUser.uid,
+      userName: currentUser.displayName || 'Anonymous'
     });
 
     currentSessionId = docRef.id;
+    caseSummary = '';
+    messagesSinceLastSummary = 0;
     addSessionToSidebar(name, role, docRef.id, true);
 
     hideWelcomeScreen();
@@ -1134,9 +1185,7 @@ window.quickStart = async function(name, role, brief) {
 
     // Send brief to AI and get opening message
     messages.push({ role: 'user', text: 'Case brief: ' + brief + '\n\nPlease introduce yourself in your role and invite me to begin.' });
-    setTimeout(function() {
-      getAIResponse('Case brief: ' + brief);
-    }, 2000);
+    getAIResponse('Case brief: ' + brief);
 
   } catch (error) {
     console.error('Error creating quick session:', error);
@@ -1326,7 +1375,6 @@ async function sendImageToGemini(base64, mimeType) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + GROQ_API_KEY
       },
       body: JSON.stringify({
         model: 'llama-3.2-11b-vision-preview',
@@ -1631,14 +1679,13 @@ function updateArgCounter() {
 window.changeDifficulty = function(value) {
   currentDifficulty = value;
 
-  const messages = {
+  const difficultyMessages = {
     beginner: '🟢 Beginner mode — AI will be patient and guide you.',
     intermediate: '🟡 Intermediate mode — Standard courtroom pressure.',
     expert: '🔴 Expert mode — AI will be relentless. Good luck.'
   };
 
-  // Show brief toast notification
-  showToast(messages[value]);
+  showToast(difficultyMessages[value]);
 }
 
 function showToast(message) {
@@ -1709,7 +1756,6 @@ Respond with ONLY the summary, no preamble.`;
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + GROQ_API_KEY
       },
       body: JSON.stringify({
         model: 'llama-3.3-70b-versatile',
