@@ -1,21 +1,7 @@
-// ══════════════════════════════════════════
-// /api/chat.js — Vercel Serverless Proxy
-// ══════════════════════════════════════════
-// Sits between the browser and Groq so the
-// API key never appears in frontend JS.
-//
-// Deploy: just push this file. Vercel picks
-// up anything in /api/ automatically.
-//
-// Set env var in Vercel dashboard:
-//   Settings → Environment Variables
-//   Name:  GROQ_API_KEY
-//   Value: gsk_...your key...
-//   Environments: Production, Preview, Development
-// ══════════════════════════════════════════
+// /api/chat.js — Vercel Serverless Proxy (CommonJS)
+// CommonJS format works on all Vercel plans without extra config.
 
-export default async function handler(req, res) {
-  // Only accept POST
+module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -37,12 +23,10 @@ export default async function handler(req, res) {
     });
 
     const data = await groqResponse.json();
-
-    // Forward Groq's status code (handles 429, 503, etc. automatically)
     return res.status(groqResponse.status).json(data);
 
   } catch (error) {
     console.error('Proxy error:', error);
     return res.status(500).json({ error: 'Failed to reach Groq API' });
   }
-}
+};
