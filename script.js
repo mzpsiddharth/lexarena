@@ -241,8 +241,19 @@ window.doLogout = async function() {
   await signOut(auth);
   messages = [];
   currentSessionId = null;
+  caseSummary = '';
+  messagesSinceLastSummary = 0;
   document.getElementById('sessions-list').innerHTML = '';
-  document.getElementById('chat-area').innerHTML = '';
+  document.getElementById('session-title-display').textContent = 'Select a session';
+  document.getElementById('arg-counter').classList.add('hidden');
+
+  // Clear chat messages WITHOUT destroying the welcome-screen element
+  // (innerHTML = '' would remove it from the DOM permanently)
+  const chatArea = document.getElementById('chat-area');
+  Array.from(chatArea.children).forEach(function(child) {
+    if (child.id !== 'welcome-screen') child.remove();
+  });
+  showWelcomeScreen();
 }
 
 
@@ -319,7 +330,7 @@ window.createSession = async function() {
     currentSessionId = docRef.id;
     addSessionToSidebar(sessionName, currentRole, docRef.id, true);
 
-    document.getElementById('chat-area').innerHTML = '';
+    clearChatArea();
     messages = [];
     caseSummary = '';
   messagesSinceLastSummary = 0;
@@ -405,7 +416,7 @@ async function loadSession(sessionId, name, role, element) {
   document.getElementById('session-title-display').textContent = name;
   switchRole(role);
 
-  document.getElementById('chat-area').innerHTML = '';
+  clearChatArea();
   hideWelcomeScreen();
   messages = [];
 
@@ -872,7 +883,7 @@ async function deleteSession(sessionId, sessionElement) {
     // If this was the active session, clear the chat
     if (currentSessionId === sessionId) {
       currentSessionId = null;
-      document.getElementById('chat-area').innerHTML = '';
+      clearChatArea();
       document.getElementById('session-title-display').textContent = 'Select a session';
       messages = [];
         }
@@ -1154,9 +1165,22 @@ window.closeSidebar = function() {
 // ══════════════════════════════════════════
 // WELCOME SCREEN
 // ══════════════════════════════════════════
+
+// Clears chat messages WITHOUT destroying the #welcome-screen element.
+// Never use chatArea.innerHTML = '' directly — it removes welcome-screen from DOM.
+function clearChatArea() {
+  const chatArea = document.getElementById('chat-area');
+  Array.from(chatArea.children).forEach(function(child) {
+    if (child.id !== 'welcome-screen') child.remove();
+  });
+}
+
 function showWelcomeScreen() {
   const ws = document.getElementById('welcome-screen');
-  if (ws) ws.style.display = 'flex';
+  if (!ws) return;
+  const chatArea = document.getElementById('chat-area');
+  if (!chatArea.contains(ws)) chatArea.appendChild(ws);
+  ws.style.display = 'flex';
 }
 
 function hideWelcomeScreen() {
@@ -1188,7 +1212,7 @@ window.quickStart = async function(name, role, brief) {
     addSessionToSidebar(name, role, docRef.id, true);
 
     hideWelcomeScreen();
-    document.getElementById('chat-area').innerHTML = '';
+    clearChatArea();
     messages = [];
     document.getElementById('session-title-display').textContent = name;
 
