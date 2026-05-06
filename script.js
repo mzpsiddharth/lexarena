@@ -276,6 +276,9 @@ async function loadSessions() {
       addSessionToSidebar(session.name, session.role, docSnap.id, false);
     });
 
+    // No session is active yet — show the welcome screen with quick-start cards
+    showWelcomeScreen();
+
   } catch (error) {
     console.error('Error loading sessions:', error);
   }
@@ -771,6 +774,12 @@ window.switchRole = function(role) {
   document.getElementById('btn-' + role).className = 'role-btn role-active-' + role;
   const labels = { judge: 'Judge', opposing: 'opposing counsel', supporting: 'supporting counsel' };
   document.querySelector('.hint-role').textContent = labels[role];
+
+  // Notify user of role change (skip on initial page load / session load)
+  if (document.getElementById('app') && !document.getElementById('app').classList.contains('hidden')) {
+    const toastLabels = { judge: '⚖ Now arguing before the Judge', opposing: '⚔ Now vs Opposing Counsel', supporting: '🤝 Now with Supporting Counsel' };
+    showToast(toastLabels[role]);
+  }
 }
 
 
