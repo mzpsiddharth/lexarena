@@ -4,11 +4,12 @@
 // ══════════════════════════════════════════
 
 import { state }  from './state.js';
-import { auth }   from './firebase.js';
+import { auth, db }   from './firebase.js';
 import {
   createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signOut, onAuthStateChanged, updateProfile
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { loadSessions } from './sessions.js';
 import { clearChatArea, showWelcomeScreen } from './ui.js';
 
@@ -28,7 +29,7 @@ export function initAuth() {
       document.getElementById('login-page').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
       loadSessions();
-      showDisclaimerIfNeeded();
+      showDisclaimerIfNeeded(user.uid);
     } else {
       state.currentUser = null;
       document.getElementById('app').classList.add('hidden');
@@ -102,12 +103,32 @@ window.showSignin = function() {
   document.getElementById('signin-form').classList.remove('hidden');
 };
 
+
 // ── DISCLAIMER ────────────────────────────
-// Shows once per browser — stored in localStorage.
-// Critical for a law product: AI citations can be wrong.
-function showDisclaimerIfNeeded() {
+// Checks Firestore first (survives device/browser changes).
+// Falls back to localStorage as a fast-path to avoid a Firestore
+// read on every login for users who have already accepted.
+async function showDisclaimerIfNeeded(uid) {
+  // Fast path: localStorage says already accepted on this browser
   if (localStorage.getItem('lexarena_disclaimer_v1')) return;
 
+  // Authoritative check: Firestore (works across devices)
+  try {
+    const prefDoc = await getDoc(doc(db, 'userPrefs', uid));
+    if (prefDoc.exists() && prefDoc.data().disclaimerAccepted) {
+      // Sync to localStorage so future logins skip the Firestore read
+      localStorage.setItem('lexarena_disclaimer_v1', '1');
+      return;
+    }
+  } catch (e) {
+    // If Firestore read fails, fall through and show the disclaimer anyway
+    console.warn('[LexArena] Could not check disclaimer status:', e);
+  }
+
+  showDisclaimerModal(uid);
+}
+
+function showDisclaimerModal(uid) {
   const overlay = document.createElement('div');
   overlay.className    = 'modal-overlay';
   overlay.style.zIndex = '500';
@@ -136,11 +157,31 @@ function showDisclaimerIfNeeded() {
         By continuing you acknowledge this is a practice tool and not a substitute for professional legal research.
       </div>
 
-      <button class="btn-primary" style="width:100%" onclick="
-        localStorage.setItem('lexarena_disclaimer_v1', '1');
-        this.closest('.modal-overlay').remove();
-      ">I understand — start practising →</button>
+      <button class="btn-primary" id="disclaimer-accept-btn" style="width:100%">
+        I understand — start practising →
+      </button>
     </div>
   `;
+
   document.body.appendChild(overlay);
+
+  document.getElementById('disclaimer-accept-btn').addEventListener('click', async function() {
+    this.disabled    = true;
+    this.textContent = 'Saving...';
+
+    // Persist to Firestore so this follows the user across devices
+    try {
+      await setDoc(doc(db, 'userPrefs', uid), {
+        disclaimerAccepted:   true,
+        disclaimerAcceptedAt: new Date()
+      }, { merge: true });
+    } catch (e) {
+      // Non-fatal — localStorage backup still works
+      console.warn('[LexArena] Could not save disclaimer to Firestore:', e);
+    }
+
+    // Always set localStorage regardless of Firestore result
+    localStorage.setItem('lexarena_disclaimer_v1', '1');
+    overlay.remove();
+  });
 }
