@@ -6,15 +6,21 @@
 
 import { state }  from './state.js';
 import { db }     from './firebase.js';
-import { doc, getDoc, updateDoc, addDoc, collection } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import {
+  doc, getDoc, updateDoc, addDoc, collection,
+  query, where, getDocs, deleteDoc
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { generateScore } from './ai.js';
-import { escapeHtml }    from './ui.js';
+import { escapeHtml, showToast } from './ui.js';
 
 
 // ── SCORE CARD ────────────────────────────
 window.showScoreCard = async function() {
   const userMessages = state.messages.filter(m => m.role === 'user');
-  if (userMessages.length < 2) { alert('Practice more before requesting a score — at least 2 arguments needed.'); return; }
+  if (userMessages.length < 2) {
+    showToast('Practice more — at least 2 arguments needed for a score.');
+    return;
+  }
 
   if (state.currentSessionId) {
     try {
@@ -28,7 +34,7 @@ window.showScoreCard = async function() {
 
   const report = await generateScore(userMessages);
   if (report) {
-    submitToLeaderboard(report.score);
+    await submitToLeaderboard(report.score);
     showSavedReport(report, userMessages.length, userMessages.length);
   }
 };
@@ -42,8 +48,8 @@ function showSavedReport(report, currentArgCount, scoredAtArgCount) {
   const hasNewArgs  = currentArgCount > scoredAtArgCount;
 
   const overlay = document.createElement('div');
-  overlay.className    = 'modal-overlay';
-  overlay.style.zIndex = '300';
+  overlay.className       = 'modal-overlay';
+  overlay.style.zIndex    = '300';
   overlay.style.overflowY = 'auto';
   overlay.innerHTML = `
     <div class="modal" style="max-width:500px;max-height:90vh;overflow-y:auto">
@@ -107,48 +113,80 @@ window.refreshScore = async function(btn) {
   const userMessages = state.messages.filter(m => m.role === 'user');
   const report = await generateScore(userMessages);
   if (report) {
-    submitToLeaderboard(report.score);
+    await submitToLeaderboard(report.score);
     showSavedReport(report, userMessages.length, userMessages.length);
   }
 };
 
 
 // ── LEADERBOARD ───────────────────────────
+// One entry per session — updates in place if the new score is higher.
+// Prevents spam and makes the leaderboard reflect best performance.
 async function submitToLeaderboard(score) {
-  if (!state.currentUser || score < 6) return;
+  if (!state.currentUser || score < 6 || !state.currentSessionId) return;
+
   try {
     const sessionName = document.getElementById('session-title-display').textContent;
+
+    // Check if this session already has a leaderboard entry
+    const existing = await getDocs(query(
+      collection(db, 'leaderboard'),
+      where('sessionId', '==', state.currentSessionId)
+    ));
+
+    if (!existing.empty) {
+      // Entry exists — only update if score improved
+      const existingDoc  = existing.docs[0];
+      const existingScore = existingDoc.data().score;
+
+      if (score > existingScore) {
+        await updateDoc(doc(db, 'leaderboard', existingDoc.id), {
+          score,
+          userName:    state.currentUser.displayName || 'Anonymous',
+          sessionName,
+          role:        state.currentRole,
+          updatedAt:   new Date()
+        });
+        showToast('🏆 Leaderboard score updated to ' + score + '/10!');
+      }
+      // If score is same or lower, do nothing silently
+      return;
+    }
+
+    // No existing entry — create a new one
     await addDoc(collection(db, 'leaderboard'), {
+      sessionId:   state.currentSessionId,
       userName:    state.currentUser.displayName || 'Anonymous',
-      sessionName: sessionName,
-      score:       score,
+      sessionName,
+      score,
       role:        state.currentRole,
       createdAt:   new Date()
     });
-  } catch (e) { console.error('Leaderboard error:', e); }
+
+  } catch (e) {
+    console.error('Leaderboard error:', e);
+  }
 }
 
 
 // ── EXPORT PDF ────────────────────────────
 window.exportSession = function() {
-  if (state.messages.length === 0) { alert('No messages to export. Start a session first.'); return; }
+  if (state.messages.length === 0) { showToast('No messages to export. Start a session first.'); return; }
 
   const { jsPDF }    = window.jspdf;
   const pdf          = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageWidth    = 210;
   const margin       = 20;
   const maxWidth     = pageWidth - margin * 2;
-  const lineHeight   = 5.5; // mm per line — consistent throughout
+  const lineHeight   = 5.5;
   let y              = 20;
 
-  // Safe symbol replacements — jsPDF helvetica cannot render unicode checkmarks
   function safeSym(text) {
     return String(text)
       .replace(/✓/g, '[+]').replace(/✗/g, '[-]').replace(/→/g, '[>]')
       .replace(/⚖/g, '').replace(/📎/g, '').replace(/<br>/g, '\n');
   }
 
-  // Returns how many lines text will occupy at given width/fontSize
   function lineCount(text, width, fontSize) {
     pdf.setFontSize(fontSize);
     return pdf.splitTextToSize(safeSym(String(text)), width).length;
@@ -173,7 +211,6 @@ window.exportSession = function() {
     y += 5;
   }
 
-  // Ensure there is room for `needed` mm before starting a block
   function ensureSpace(needed) {
     if (y + needed > 272) { pdf.addPage(); y = 20; }
   }
@@ -182,7 +219,6 @@ window.exportSession = function() {
   const sessionName = document.getElementById('session-title-display').textContent;
   const date        = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
 
-  // ── HEADER ──
   pdf.setFillColor(20, 20, 40);
   pdf.rect(0, 0, pageWidth, 42, 'F');
   pdf.setFontSize(22); pdf.setTextColor(201,169,110); pdf.setFont('helvetica','bold');
@@ -194,7 +230,6 @@ window.exportSession = function() {
   pdf.text(displayName, margin, 35);
   y = 52;
 
-  // ── SESSION INFO ──
   pdf.setFillColor(240, 240, 248);
   pdf.roundedRect(margin, y-4, maxWidth, 26, 3, 3, 'F');
   pdf.setFontSize(9); pdf.setTextColor(80,80,110); pdf.setFont('helvetica','normal');
@@ -206,7 +241,6 @@ window.exportSession = function() {
   y += 32;
   addLine([180,180,200]);
 
-  // ── MESSAGES ──
   let argCount = 0;
   state.messages.forEach(function(msg) {
     if (msg.role === 'user') {
@@ -263,7 +297,6 @@ window.exportSession = function() {
     }
   });
 
-  // ── PERFORMANCE SUMMARY ──
   const scored = state.messages.filter(m => m.role==='ai' && m.feedback);
   if (scored.length > 0) {
     ensureSpace(50);
@@ -291,23 +324,21 @@ window.exportSession = function() {
     y += 52;
   }
 
-  // ── FOOTER ──
   y += 4;
   addLine([200,200,210]);
   pdf.setFontSize(8); pdf.setTextColor(150,150,170); pdf.setFont('helvetica','normal');
   pdf.text('Generated by LexArena  |  lexarena-omega.vercel.app  |  ' + date, margin, y);
-
   pdf.save(sessionName.replace(/[^a-z0-9]/gi,'_').toLowerCase() + '_lexarena.pdf');
 };
 
 
 // ── SHARE SESSION ─────────────────────────
 window.shareSession = async function() {
-  if (!state.currentSessionId) { alert('No active session to share.'); return; }
+  if (!state.currentSessionId) { showToast('No active session to share.'); return; }
   try {
     await updateDoc(doc(db, 'sessions', state.currentSessionId), { isPublic: true });
-    const shareUrl = window.location.origin + '/share.html?id=' + state.currentSessionId;
-    const overlay  = document.createElement('div');
+    const shareUrl  = window.location.origin + '/share.html?id=' + state.currentSessionId;
+    const overlay   = document.createElement('div');
     overlay.className    = 'modal-overlay';
     overlay.style.zIndex = '300';
     overlay.innerHTML = `
@@ -329,13 +360,13 @@ window.shareSession = async function() {
     overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   } catch (e) {
     console.error('Error sharing session:', e);
-    alert('Error generating share link. Please try again.');
+    showToast('Error generating share link. Please try again.');
   }
 };
 
 window.copyShareLink = function(url, btn) {
   navigator.clipboard.writeText(url).then(function() {
-    btn.textContent    = '✓ Copied!';
+    btn.textContent      = '✓ Copied!';
     btn.style.background = 'var(--supporting)';
     setTimeout(() => { btn.textContent = 'Copy link'; btn.style.background = ''; }, 2000);
   });
