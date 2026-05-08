@@ -3,7 +3,7 @@
 // Imports: state, firebase, ui, ai
 // ══════════════════════════════════════════
 
-import { state, SUMMARY_UPDATE_INTERVAL } from './state.js';
+import { state, SUMMARY_UPDATE_INTERVAL, SEND_COOLDOWN_MS } from './state.js';
 import { db }  from './firebase.js';
 import {
   collection, addDoc, getDocs, query, orderBy,
@@ -23,7 +23,12 @@ export async function saveMessageToFirebase(role, text, feedback) {
     await updateDoc(doc(db, 'sessions', state.currentSessionId), {
       messages: arrayUnion({ role, text, feedback: feedback || null })
     });
-  } catch (e) { console.error('Error saving message:', e); }
+  } catch (e) {
+    console.error('Error saving message:', e);
+    // Notify user — silent failure means they might think session is saved when it isn't
+    const { showToast } = await import('./ui.js');
+    showToast('⚠️ Could not save message — check your connection');
+  }
 }
 
 
@@ -294,14 +299,29 @@ window.quickStart = async function(name, role, brief) {
 
 
 // ── SEND MESSAGE ─────────────────────────
+let _lastSendTime = 0;
+const MIN_SEND_INTERVAL_MS = 3000; // minimum 3 seconds between requests
+
 window.sendMessage = async function() {
   if (state.isLoading) return;
+
+  // Frontend rate limit — prevents accidental spam
+  const now = Date.now();
+  if (now - _lastSendTime < MIN_SEND_INTERVAL_MS) {
+    const wait = Math.ceil((MIN_SEND_INTERVAL_MS - (now - _lastSendTime)) / 1000);
+    const { showToast } = await import('./ui.js');
+    showToast('⏳ Please wait ' + wait + 's before sending again.');
+    return;
+  }
+
   const sendBtn = document.getElementById('send-btn');
   sendBtn.disabled = true;
 
   const input = document.getElementById('msg-input');
   const text  = input.value.trim();
   if (!text) { sendBtn.disabled = false; return; }
+
+  _lastSendTime = Date.now();
 
   input.value        = '';
   input.style.height = 'auto';

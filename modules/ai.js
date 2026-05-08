@@ -11,34 +11,43 @@ import { doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.0/fireb
 import { addMessageToChat, showTypingIndicator, hideTypingIndicator } from './ui.js';
 
 // ── FEEDBACK PARSER ───────────────────────
+// Handles every output format the model produces:
+//   FEEDBACK: / Feedback: / **FEEDBACK:** /
+//   ### FEEDBACK / --- FEEDBACK / FEEDBACK\n
+// For each field: GOOD / GAP / TIP with or
+// without colon, bold markers, dash prefix.
 export function parseFeedback(fullText) {
-  const markers = ['FEEDBACK:', 'Feedback:', '**FEEDBACK:**', '**Feedback:**'];
-  let feedbackIndex = -1;
-  for (const marker of markers) {
-    const idx = fullText.indexOf(marker);
-    if (idx !== -1) { feedbackIndex = idx; break; }
+  // Broad regex — catches all known section header variants
+  const sectionMatch = fullText.search(/(\*{0,2}#{0,3}-{0,3}\s*FEEDBACK[:\s])/i);
+  if (sectionMatch === -1) return { mainText: fullText.trim(), feedback: null };
+
+  const mainText     = fullText.substring(0, sectionMatch).trim();
+  const feedbackText = fullText.substring(sectionMatch);
+
+  // Handles: GOOD: / **GOOD:** / - GOOD: / GOOD (no colon)
+  function extract(text, fieldName) {
+    const pattern = new RegExp(
+      '(?:^|\\n)\\s*(?:\\*{0,2}|-|>)?\\s*\\*{0,2}' + fieldName + '\\*{0,2}:?\\s*([^\\n]+)',
+      'i'
+    );
+    const match = text.match(pattern);
+    if (!match) return '';
+    return match[1].trim().replace(/^\*+|\*+$/g, '').replace(/^:/, '').trim();
   }
-  if (feedbackIndex === -1) return { mainText: fullText.trim(), feedback: null };
 
-  const mainText    = fullText.substring(0, feedbackIndex).trim();
-  const feedbackText = fullText.substring(feedbackIndex);
-
-  function extract(text, labels) {
-    for (const label of labels) {
-      const i = text.indexOf(label);
-      if (i !== -1) return text.substring(i + label.length).split('\n')[0].trim().replace(/^\*+|\*+$/g, '').trim();
-    }
-    return '';
-  }
-
-  return {
-    mainText,
-    feedback: {
-      good: extract(feedbackText, ['GOOD:', 'Good:', '**GOOD:**', '**Good:**']),
-      gap:  extract(feedbackText, ['GAP:',  'Gap:',  '**GAP:**',  '**Gap:**']),
-      tip:  extract(feedbackText, ['TIP:',  'Tip:',  '**TIP:**',  '**Tip:**'])
-    }
+  const feedback = {
+    good: extract(feedbackText, 'GOOD'),
+    gap:  extract(feedbackText, 'GAP'),
+    tip:  extract(feedbackText, 'TIP')
   };
+
+  // All empty = unknown format — log raw text for debugging
+  if (!feedback.good && !feedback.gap && !feedback.tip) {
+    console.warn('[LexArena] Feedback section found but fields unparseable. Raw:', feedbackText.substring(0, 200));
+    return { mainText: fullText.trim(), feedback: null };
+  }
+
+  return { mainText, feedback };
 }
 
 // ── WELCOME MESSAGE ───────────────────────
@@ -86,9 +95,43 @@ export async function getAIResponse(userMessage, saveToFirebase) {
       })
     });
 
+    // Check HTTP status before parsing — proxy forwards Groq's 429/503 as status codes
+    if (!response.ok) {
+      const err = new Error('HTTP ' + response.status);
+      err.status = response.status;
+      throw err;
+    }
+
     const data   = await response.json();
     const aiText = data.choices[0].message.content;
-    const parsed = parseFeedback(aiText);
+    let parsed   = parseFeedback(aiText);
+
+    // Feedback retry — if the model forgot the feedback block, ask for it explicitly
+    if (!parsed.feedback || (!parsed.feedback.good && !parsed.feedback.gap && !parsed.feedback.tip)) {
+      try {
+        const retryResponse = await fetch(GROQ_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model:       'llama-3.3-70b-versatile',
+            messages:    [
+              { role: 'user',      content: userMessage },
+              { role: 'assistant', content: aiText },
+              { role: 'user',      content: 'You forgot to include the feedback block. Please provide ONLY the feedback in this exact format, nothing else:\nFEEDBACK:\nGOOD: [what was done well]\nGAP: [what was missing]\nTIP: [one improvement]' }
+            ],
+            max_tokens:  150,
+            temperature: 0.3
+          })
+        });
+        const retryData     = await retryResponse.json();
+        const retryFeedback = parseFeedback(parsed.mainText + '\n' + retryData.choices[0].message.content);
+        if (retryFeedback.feedback && (retryFeedback.feedback.good || retryFeedback.feedback.gap)) {
+          parsed = retryFeedback;
+        }
+      } catch (retryErr) {
+        console.warn('Feedback retry failed silently:', retryErr);
+      }
+    }
 
     state.messages.push({ role: 'ai', text: parsed.mainText, feedback: parsed.feedback });
     await saveToFirebase('ai', parsed.mainText, parsed.feedback);
@@ -139,7 +182,14 @@ export async function sendImageToAI(base64, mimeType, saveToFirebase) {
 
   } catch (error) {
     console.error('Image API Error:', error);
-    addMessageToChat('ai', 'Error analyzing image. Please try again.', null);
+    // Show actionable error instead of silent failure
+    const status = error.status || 0;
+    const msg = (status === 429)
+      ? '⏳ Too many requests. Please wait a moment and try the image again.'
+      : (status === 503 || status === 502)
+      ? '🔧 AI servers busy. Please try again in a few seconds.'
+      : '📎 Could not analyze image. Please try again or describe it in text instead.';
+    addMessageToChat('ai', msg, null);
   }
 
   state.isLoading       = false;
@@ -219,7 +269,16 @@ export async function generateScore(userMessages) {
     const data   = await response.json();
     let reportText = data.choices[0].message.content;
     reportText     = reportText.replace(/```json/g, '').replace(/```/g, '').trim();
-    const report   = JSON.parse(reportText);
+
+    // Extract JSON even if model wraps it in extra text
+    const jsonMatch = reportText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('No JSON object found in score response');
+    const report = JSON.parse(jsonMatch[0]);
+
+    // Validate required fields exist
+    if (typeof report.score !== 'number' || !report.grade || !report.summary) {
+      throw new Error('Score response missing required fields');
+    }
 
     if (state.currentSessionId) {
       await updateDoc(doc(db, 'sessions', state.currentSessionId), {
@@ -250,13 +309,16 @@ function showApiError(error, saveToFirebase) {
   const errorDiv = document.createElement('div');
   errorDiv.className = 'msg msg-ai';
 
-  const errorStr = JSON.stringify(error) + (error.message || '');
+  // Match on err.status (set by response.ok check) or fall back to string matching
+  const status   = error.status || 0;
+  const errorStr = (error.message || '') + JSON.stringify(error);
   let errorMsg, showRetry, retryDelay;
 
-  if      (errorStr.includes('429'))                                               { errorMsg = '⏳ Too many requests — Groq is rate limiting. Retrying in 15 seconds...'; showRetry = true;  retryDelay = 15000; }
-  else if (errorStr.includes('503') || errorStr.includes('502'))                   { errorMsg = '🔧 Groq servers temporarily overloaded. Retrying in 20 seconds...';        showRetry = true;  retryDelay = 20000; }
-  else if (errorStr.includes('401') || errorStr.includes('403'))                   { errorMsg = '🔑 API key issue. Please contact support.';                                showRetry = false; }
-  else if (errorStr.includes('fetch') || errorStr.includes('network') || errorStr.includes('Failed')) { errorMsg = '📶 Network error. Please check your connection.'; showRetry = true; retryDelay = 5000; }
+  if      (status === 429 || errorStr.includes('429'))                             { errorMsg = '⏳ Too many requests. Please wait a moment before trying again.';          showRetry = true;  retryDelay = 15000; }
+  else if (status === 503 || status === 502 || errorStr.includes('503'))           { errorMsg = '🔧 AI servers temporarily busy. Retrying in 20 seconds...';               showRetry = true;  retryDelay = 20000; }
+  else if (status === 401 || status === 403)                                       { errorMsg = '🔑 Authentication error. Please refresh the page.';                       showRetry = false; }
+  else if (status === 500)                                                         { errorMsg = '⚠️ Server error. Please try again in a moment.';                           showRetry = true;  retryDelay = 5000; }
+  else if (errorStr.includes('fetch') || errorStr.includes('network') || errorStr.includes('Failed')) { errorMsg = '📶 Network error. Please check your internet connection.'; showRetry = true; retryDelay = 5000; }
   else                                                                               { errorMsg = '⚠️ Something went wrong. Please try again.';                              showRetry = true;  retryDelay = 5000; }
 
   const lastUserMsg = [...state.messages].reverse().find(m => m.role === 'user');

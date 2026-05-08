@@ -28,6 +28,7 @@ export function initAuth() {
       document.getElementById('login-page').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
       loadSessions();
+      showDisclaimerIfNeeded();
     } else {
       state.currentUser = null;
       document.getElementById('app').classList.add('hidden');
@@ -100,3 +101,46 @@ window.showSignin = function() {
   document.getElementById('signup-form').classList.add('hidden');
   document.getElementById('signin-form').classList.remove('hidden');
 };
+
+// ── DISCLAIMER ────────────────────────────
+// Shows once per browser — stored in localStorage.
+// Critical for a law product: AI citations can be wrong.
+function showDisclaimerIfNeeded() {
+  if (localStorage.getItem('lexarena_disclaimer_v1')) return;
+
+  const overlay = document.createElement('div');
+  overlay.className    = 'modal-overlay';
+  overlay.style.zIndex = '500';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:460px">
+      <div style="font-size:32px;margin-bottom:12px;text-align:center">⚖️</div>
+      <div class="modal-title" style="margin-bottom:8px;text-align:center">Before you begin</div>
+
+      <div style="background:rgba(201,169,110,0.08);border:1px solid rgba(201,169,110,0.25);
+        border-radius:10px;padding:16px;margin-bottom:20px">
+        <div style="font-size:12px;color:var(--accent);font-weight:600;letter-spacing:1px;
+          text-transform:uppercase;margin-bottom:10px">⚠ Important disclaimer</div>
+        <div style="font-size:13px;color:var(--text2);line-height:1.8">
+          LexArena is an <strong style="color:var(--text)">AI-powered practice tool</strong>,
+          not a source of legal advice.<br><br>
+          • AI-generated case citations and section references <strong style="color:var(--text)">may be inaccurate</strong>
+            — always verify against official sources (bare acts, SCC Online, Manupatra).<br><br>
+          • Arguments and feedback are for <strong style="color:var(--text)">practice and learning only</strong>
+            — do not rely on them for actual legal proceedings.<br><br>
+          • This platform is intended for <strong style="color:var(--text)">law students and junior advocates</strong>
+            for educational purposes.
+        </div>
+      </div>
+
+      <div style="font-size:12px;color:var(--text3);text-align:center;margin-bottom:16px;line-height:1.6">
+        By continuing you acknowledge this is a practice tool and not a substitute for professional legal research.
+      </div>
+
+      <button class="btn-primary" style="width:100%" onclick="
+        localStorage.setItem('lexarena_disclaimer_v1', '1');
+        this.closest('.modal-overlay').remove();
+      ">I understand — start practising →</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}

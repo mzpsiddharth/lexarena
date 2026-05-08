@@ -17,7 +17,11 @@ export const state = {
   caseSummary:              '',
   messagesSinceLastSummary: 0,
   userInitial:              'U',
+  lastMessageTime:          0,   // for client-side rate limiting
 };
+
+// Minimum ms between sends — prevents rapid-fire Groq 429s
+export const SEND_COOLDOWN_MS = 2500;
 
 export const difficultyInstructions = {
   beginner:     'DIFFICULTY — BEGINNER: The user is a law student with limited experience. Be firm but educational. After challenging their argument, briefly explain WHY it was weak and what principle of Indian law they should understand. Give them a hint about what section or case they should look up. Be patient.',
