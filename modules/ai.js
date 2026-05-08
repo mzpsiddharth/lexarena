@@ -174,6 +174,12 @@ export async function sendImageToAI(base64, mimeType, saveToFirebase) {
       })
     });
 
+    if (!response.ok) {
+      const err = new Error('HTTP ' + response.status);
+      err.status = response.status;
+      throw err;
+    }
+
     const data   = await response.json();
     const parsed = parseFeedback(data.choices[0].message.content);
     state.messages.push({ role: 'ai', text: parsed.mainText, feedback: parsed.feedback });
@@ -217,6 +223,12 @@ export async function updateCaseSummary() {
         temperature: 0.3
       })
     });
+
+    if (!response.ok) {
+      // Summary failure is non-critical — log and continue, don't corrupt state
+      console.warn('Case summary update failed:', response.status);
+      return;
+    }
 
     const data = await response.json();
     state.caseSummary              = data.choices[0].message.content.trim();

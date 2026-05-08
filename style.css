@@ -463,6 +463,12 @@ body {
   margin-left: auto;
 }
 
+.msg-ai {
+  /* AI message — left-aligned, no special overrides needed now
+     but class exists for future targeting */
+  align-items: flex-start;
+}
+
 .msg-avatar {
   width: 34px;
   height: 34px;

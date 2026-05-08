@@ -138,113 +138,165 @@ window.exportSession = function() {
   const pageWidth    = 210;
   const margin       = 20;
   const maxWidth     = pageWidth - margin * 2;
+  const lineHeight   = 5.5; // mm per line — consistent throughout
   let y              = 20;
+
+  // Safe symbol replacements — jsPDF helvetica cannot render unicode checkmarks
+  function safeSym(text) {
+    return String(text)
+      .replace(/✓/g, '[+]').replace(/✗/g, '[-]').replace(/→/g, '[>]')
+      .replace(/⚖/g, '').replace(/📎/g, '').replace(/<br>/g, '\n');
+  }
+
+  // Returns how many lines text will occupy at given width/fontSize
+  function lineCount(text, width, fontSize) {
+    pdf.setFontSize(fontSize);
+    return pdf.splitTextToSize(safeSym(String(text)), width).length;
+  }
 
   function addText(text, x, fontSize, color, bold) {
     pdf.setFontSize(fontSize);
     pdf.setTextColor(...color);
     pdf.setFont('helvetica', bold ? 'bold' : 'normal');
-    const lines = pdf.splitTextToSize(String(text), maxWidth - (x - margin));
+    const lines = pdf.splitTextToSize(safeSym(String(text)), maxWidth - (x - margin));
     lines.forEach(function(line) {
-      if (y > 270) { pdf.addPage(); y = 20; }
+      if (y > 272) { pdf.addPage(); y = 20; }
       pdf.text(line, x, y);
-      y += fontSize * 0.45;
+      y += lineHeight;
     });
   }
 
   function addLine(color) {
-    if (y > 270) { pdf.addPage(); y = 20; }
+    if (y > 272) { pdf.addPage(); y = 20; }
     pdf.setDrawColor(...(color || [200,200,200]));
     pdf.line(margin, y, pageWidth - margin, y);
-    y += 6;
+    y += 5;
+  }
+
+  // Ensure there is room for `needed` mm before starting a block
+  function ensureSpace(needed) {
+    if (y + needed > 272) { pdf.addPage(); y = 20; }
   }
 
   const roleLabels  = { judge: 'Judge', opposing: 'Opposing Counsel', supporting: 'Supporting Counsel' };
   const sessionName = document.getElementById('session-title-display').textContent;
   const date        = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
 
-  // Header
+  // ── HEADER ──
   pdf.setFillColor(20, 20, 40);
   pdf.rect(0, 0, pageWidth, 42, 'F');
-  pdf.setFontSize(24); pdf.setTextColor(201,169,110); pdf.setFont('helvetica','bold');
-  pdf.text('LexArena', margin, 18);
-  pdf.setFontSize(10); pdf.setTextColor(180,180,200); pdf.setFont('helvetica','normal');
-  pdf.text('AI Courtroom Simulator · Indian Law', margin, 26);
-  pdf.setFontSize(12); pdf.setTextColor(255,255,255);
-  pdf.text(sessionName, margin, 36);
+  pdf.setFontSize(22); pdf.setTextColor(201,169,110); pdf.setFont('helvetica','bold');
+  pdf.text('LexArena', margin, 16);
+  pdf.setFontSize(9); pdf.setTextColor(180,180,200); pdf.setFont('helvetica','normal');
+  pdf.text('AI Courtroom Simulator  |  Indian Law Practice', margin, 24);
+  pdf.setFontSize(11); pdf.setTextColor(255,255,255); pdf.setFont('helvetica','bold');
+  const displayName = sessionName.length > 55 ? sessionName.substring(0, 52) + '...' : sessionName;
+  pdf.text(displayName, margin, 35);
   y = 52;
 
-  // Session info
-  pdf.setFillColor(245,245,250);
-  pdf.roundedRect(margin, y-5, maxWidth, 28, 3, 3, 'F');
-  pdf.setFontSize(10); pdf.setTextColor(80,80,100); pdf.setFont('helvetica','normal');
-  pdf.text('AI Role: ' + (roleLabels[state.currentRole] || state.currentRole), margin+4, y+4);
-  pdf.text('Date: ' + date, margin+4, y+11);
-  pdf.text('Total arguments: ' + state.messages.filter(m => m.role==='user').length, margin+4, y+18);
-  y += 34;
+  // ── SESSION INFO ──
+  pdf.setFillColor(240, 240, 248);
+  pdf.roundedRect(margin, y-4, maxWidth, 26, 3, 3, 'F');
+  pdf.setFontSize(9); pdf.setTextColor(80,80,110); pdf.setFont('helvetica','normal');
+  pdf.text('AI Role:',   margin+4, y+3);  pdf.setFont('helvetica','bold'); pdf.text(roleLabels[state.currentRole] || state.currentRole, margin+22, y+3);
+  pdf.setFont('helvetica','normal');
+  pdf.text('Date:',      margin+4, y+10); pdf.setFont('helvetica','bold'); pdf.text(date, margin+22, y+10);
+  pdf.setFont('helvetica','normal');
+  pdf.text('Arguments:', margin+4, y+17); pdf.setFont('helvetica','bold'); pdf.text(String(state.messages.filter(m=>m.role==='user').length), margin+26, y+17);
+  y += 32;
   addLine([180,180,200]);
 
-  // Messages
+  // ── MESSAGES ──
   let argCount = 0;
   state.messages.forEach(function(msg) {
     if (msg.role === 'user') {
       argCount++;
-      pdf.setFillColor(230,240,255);
-      if (y > 265) { pdf.addPage(); y = 20; }
-      pdf.roundedRect(margin, y-4, maxWidth, 8, 2, 2, 'F');
-      addText('YOU — Argument ' + argCount, margin+3, 10, [30,60,120], true);
-      y += 2;
-      addText(msg.text.replace(/<br>/g, '\n'), margin+3, 11, [20,20,40], false);
-      y += 6;
-    } else {
-      pdf.setFillColor(255,245,230);
-      if (y > 265) { pdf.addPage(); y = 20; }
-      pdf.roundedRect(margin, y-4, maxWidth, 8, 2, 2, 'F');
-      addText((roleLabels[state.currentRole] || 'AI').toUpperCase(), margin+3, 10, [140,80,20], true);
-      y += 2;
-      addText(msg.text.replace(/<br>/g, '\n'), margin+3, 11, [40,40,60], false);
+      const textLines = lineCount(msg.text, maxWidth - 6, 10);
+      const blockH    = lineHeight * textLines + 16;
+      ensureSpace(blockH);
+
+      pdf.setFillColor(228, 238, 255);
+      pdf.roundedRect(margin, y-3, maxWidth, blockH, 2, 2, 'F');
+      pdf.setFontSize(8); pdf.setTextColor(40,70,160); pdf.setFont('helvetica','bold');
+      pdf.text('YOU  —  Argument ' + argCount, margin+4, y+4);
+      y += 8;
+      addText(msg.text, margin+4, 10, [20,20,50], false);
       y += 4;
+
+    } else {
+      const mainLines = lineCount(msg.text, maxWidth - 6, 10);
+      let blockH      = lineHeight * mainLines + 14;
+      let feedbackH   = 0;
+
       if (msg.feedback && (msg.feedback.good || msg.feedback.gap || msg.feedback.tip)) {
-        pdf.setFillColor(252,250,240); pdf.setDrawColor(201,169,110);
-        if (y > 265) { pdf.addPage(); y = 20; }
-        pdf.roundedRect(margin+4, y-2, maxWidth-8, 26, 2, 2, 'FD');
-        addText('ARGUMENT ANALYSIS', margin+8, 9, [160,120,40], true);
-        y += 2;
-        if (msg.feedback.good) addText('✓  ' + msg.feedback.good, margin+8, 10, [30,120,70],  false);
-        if (msg.feedback.gap)  addText('✗  ' + msg.feedback.gap,  margin+8, 10, [180,40,40],  false);
-        if (msg.feedback.tip)  addText('→  ' + msg.feedback.tip,  margin+8, 10, [140,100,20], false);
-        y += 6;
+        const goodLines = msg.feedback.good ? lineCount('[+] ' + msg.feedback.good, maxWidth - 20, 9) : 0;
+        const gapLines  = msg.feedback.gap  ? lineCount('[-] ' + msg.feedback.gap,  maxWidth - 20, 9) : 0;
+        const tipLines  = msg.feedback.tip  ? lineCount('[>] ' + msg.feedback.tip,  maxWidth - 20, 9) : 0;
+        feedbackH = (goodLines + gapLines + tipLines) * lineHeight + 14;
       }
-      addLine([220,220,230]);
+
+      ensureSpace(blockH + feedbackH + 6);
+
+      pdf.setFillColor(255, 248, 235);
+      pdf.roundedRect(margin, y-3, maxWidth, blockH, 2, 2, 'F');
+      pdf.setFontSize(8); pdf.setTextColor(160,90,20); pdf.setFont('helvetica','bold');
+      pdf.text((roleLabels[state.currentRole] || 'AI').toUpperCase(), margin+4, y+4);
+      y += 8;
+      addText(msg.text, margin+4, 10, [40,35,25], false);
+      y += 3;
+
+      if (msg.feedback && (msg.feedback.good || msg.feedback.gap || msg.feedback.tip)) {
+        ensureSpace(feedbackH);
+        pdf.setFillColor(255, 252, 242);
+        pdf.setDrawColor(201,169,110);
+        pdf.roundedRect(margin+4, y-2, maxWidth-8, feedbackH, 2, 2, 'FD');
+        pdf.setFontSize(7.5); pdf.setTextColor(150,110,30); pdf.setFont('helvetica','bold');
+        pdf.text('ARGUMENT ANALYSIS', margin+8, y+5);
+        y += 9;
+        if (msg.feedback.good) addText('[+] ' + msg.feedback.good, margin+8, 9, [30,120,60],  false);
+        if (msg.feedback.gap)  addText('[-] ' + msg.feedback.gap,  margin+8, 9, [170,40,40],  false);
+        if (msg.feedback.tip)  addText('[>] ' + msg.feedback.tip,  margin+8, 9, [130,90,20],  false);
+        y += 4;
+      }
+
+      addLine([215,215,228]);
     }
   });
 
-  // Score summary
+  // ── PERFORMANCE SUMMARY ──
   const scored = state.messages.filter(m => m.role==='ai' && m.feedback);
   if (scored.length > 0) {
+    ensureSpace(50);
     y += 4;
-    if (y > 240) { pdf.addPage(); y = 20; }
-    pdf.setFillColor(20,20,40);
-    pdf.roundedRect(margin, y-5, maxWidth, 44, 3, 3, 'F');
-    pdf.setFontSize(13); pdf.setTextColor(201,169,110); pdf.setFont('helvetica','bold');
-    pdf.text('PERFORMANCE SUMMARY', margin+4, y+6);
-    let good = scored.filter(m=>m.feedback&&m.feedback.good).length;
-    let gap  = scored.filter(m=>m.feedback&&m.feedback.gap).length;
+    pdf.setFillColor(18,18,38);
+    pdf.roundedRect(margin, y-4, maxWidth, 46, 3, 3, 'F');
+    pdf.setFontSize(11); pdf.setTextColor(201,169,110); pdf.setFont('helvetica','bold');
+    pdf.text('PERFORMANCE SUMMARY', margin+5, y+6);
+
+    const good  = scored.filter(m=>m.feedback&&m.feedback.good).length;
+    const gap   = scored.filter(m=>m.feedback&&m.feedback.gap).length;
     const total = good + gap;
     const score = total > 0 ? Math.round((good/total)*10) : 5;
     const grade = score>=8?'A':score>=6?'B':score>=5?'C+':'C';
-    pdf.setFontSize(20); pdf.setTextColor(255,255,255); pdf.setFont('helvetica','bold');
-    pdf.text(score+'/10  '+grade, margin+4, y+20);
-    pdf.setFontSize(10); pdf.setTextColor(150,220,150); pdf.setFont('helvetica','normal');
-    pdf.text('Strong arguments: '+good, margin+4, y+30);
-    pdf.setTextColor(220,120,120);
-    pdf.text('Gaps identified: '+gap, margin+60, y+30);
-    y += 50;
+
+    pdf.setFontSize(28); pdf.setTextColor(255,255,255); pdf.setFont('helvetica','bold');
+    pdf.text(score+'/10', margin+5, y+24);
+    pdf.setFontSize(18); pdf.setTextColor(201,169,110);
+    pdf.text(grade, margin+42, y+24);
+
+    pdf.setFontSize(9); pdf.setFont('helvetica','normal');
+    pdf.setTextColor(140,210,140); pdf.text('Strong: '+good,   margin+5,  y+34);
+    pdf.setTextColor(210,120,120); pdf.text('Gaps: '+gap,      margin+35, y+34);
+    pdf.setTextColor(160,160,180); pdf.text('Exchanges: '+scored.length, margin+62, y+34);
+    y += 52;
   }
 
-  y += 6;
+  // ── FOOTER ──
+  y += 4;
   addLine([200,200,210]);
-  addText('Generated by LexArena · lexarena-omega.vercel.app · ' + date, margin, 9, [150,150,170], false);
+  pdf.setFontSize(8); pdf.setTextColor(150,150,170); pdf.setFont('helvetica','normal');
+  pdf.text('Generated by LexArena  |  lexarena-omega.vercel.app  |  ' + date, margin, y);
+
   pdf.save(sessionName.replace(/[^a-z0-9]/gi,'_').toLowerCase() + '_lexarena.pdf');
 };
 
