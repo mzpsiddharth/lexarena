@@ -16,8 +16,6 @@
       --font-display:'Playfair Display',serif;--font:'DM Sans',sans-serif;
     }
     body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14px}
-
-    /* NAV */
     nav{padding:16px 24px;border-bottom:1px solid var(--border);
       display:flex;align-items:center;justify-content:space-between;
       background:var(--surface)}
@@ -27,11 +25,7 @@
     .btn-try{padding:8px 18px;border-radius:8px;background:var(--accent);color:#0a0a0f;
       font-family:var(--font);font-size:13px;font-weight:600;text-decoration:none;transition:.2s}
     .btn-try:hover{background:#e8c97a}
-
-    /* MAIN */
     .container{max-width:760px;margin:0 auto;padding:32px 24px}
-
-    /* SESSION HEADER */
     .session-header{background:var(--surface);border:1px solid var(--border2);
       border-radius:14px;padding:24px;margin-bottom:24px}
     .shared-badge{font-size:10px;color:var(--accent);letter-spacing:1px;
@@ -43,8 +37,6 @@
     .badge-judge{background:rgba(123,156,255,0.15);color:var(--judge)}
     .badge-opposing{background:rgba(224,122,95,0.15);color:var(--opposing)}
     .badge-supporting{background:rgba(82,183,136,0.15);color:var(--supporting)}
-
-    /* MESSAGES */
     .messages{display:flex;flex-direction:column;gap:16px}
     .msg{display:flex;gap:12px}
     .msg-user{flex-direction:row-reverse}
@@ -57,8 +49,6 @@
     .msg-bubble{padding:12px 16px;border-radius:12px;font-size:14px;line-height:1.65;color:var(--text)}
     .ai-bubble{background:var(--surface);border:1px solid var(--border)}
     .user-bubble{background:rgba(201,169,110,0.06);border:1px solid rgba(201,169,110,0.15)}
-
-    /* FEEDBACK */
     .feedback-block{background:var(--surface2);border:1px solid var(--border);
       border-left:3px solid var(--accent);border-radius:8px;margin-top:12px;padding:14px 16px}
     .feedback-title{font-size:10px;color:var(--accent);letter-spacing:1px;
@@ -66,18 +56,12 @@
     .feedback-row{display:flex;gap:10px;margin-bottom:7px;align-items:flex-start}
     .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;margin-top:6px}
     .feedback-text{font-size:12px;color:var(--text2);line-height:1.6}
-
-    /* LOADING */
     .loading{text-align:center;padding:80px 24px;color:var(--text3)}
     .loading-icon{font-size:40px;margin-bottom:16px;opacity:.5}
-
-    /* ERROR */
     .error{text-align:center;padding:80px 24px}
     .error-icon{font-size:48px;margin-bottom:16px}
     .error h2{font-family:var(--font-display);font-size:24px;margin-bottom:8px}
     .error p{color:var(--text2);margin-bottom:24px}
-
-    /* CTA BANNER */
     .cta-banner{background:var(--surface);border:1px solid var(--border2);
       border-radius:14px;padding:24px;margin-top:32px;text-align:center}
     .cta-banner h3{font-family:var(--font-display);font-size:20px;margin-bottom:8px}
@@ -90,7 +74,6 @@
 </head>
 <body>
 
-<!-- NAV -->
 <nav>
   <a href="index.html" class="nav-logo">⚖ LexArena</a>
   <div style="display:flex;align-items:center;gap:12px">
@@ -99,7 +82,6 @@
   </div>
 </nav>
 
-<!-- CONTENT -->
 <div class="container">
   <div id="content">
     <div class="loading">
@@ -111,7 +93,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, collection, getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyARAqEPx23O2sxmmOfULKR-Lb38ZKP2Ufk",
@@ -123,10 +105,9 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+const db  = getFirestore(app);
 
-// Get session ID from URL
-const params = new URLSearchParams(window.location.search);
+const params    = new URLSearchParams(window.location.search);
 const sessionId = params.get('id');
 
 if (!sessionId) {
@@ -137,8 +118,7 @@ if (!sessionId) {
 
 async function loadSharedSession(id) {
   try {
-    const sessionRef = doc(db, 'sessions', id);
-    const sessionSnap = await getDoc(sessionRef);
+    const sessionSnap = await getDoc(doc(db, 'sessions', id));
 
     if (!sessionSnap.exists()) {
       showError('Session not found. It may have been deleted.');
@@ -152,7 +132,16 @@ async function loadSharedSession(id) {
       return;
     }
 
-    renderSession(session);
+    // Load messages from subcollection, ordered by createdAt
+    const messagesSnap = await getDocs(query(
+      collection(db, 'sessions', id, 'messages'),
+      orderBy('createdAt', 'asc')
+    ));
+
+    const messages = [];
+    messagesSnap.forEach(msgDoc => messages.push(msgDoc.data()));
+
+    renderSession(session, messages);
 
   } catch (error) {
     console.error('Error loading session:', error);
@@ -160,10 +149,9 @@ async function loadSharedSession(id) {
   }
 }
 
-function renderSession(session) {
+function renderSession(session, messages) {
   const roleLabels = { judge: 'Judge', opposing: 'Opposing Counsel', supporting: 'Supporting Counsel' };
   const badgeClass = { judge: 'badge-judge', opposing: 'badge-opposing', supporting: 'badge-supporting' };
-  const messages = session.messages || [];
   const date = session.createdAt?.toDate?.()?.toLocaleDateString('en-IN', {
     day: 'numeric', month: 'long', year: 'numeric'
   }) || 'Unknown date';
@@ -185,8 +173,8 @@ function renderSession(session) {
           <div class="feedback-block">
             <div class="feedback-title">⚡ Argument analysis</div>
             ${msg.feedback.good ? `<div class="feedback-row"><div class="dot" style="background:#4caf7d"></div><div class="feedback-text">✓ ${escHtml(msg.feedback.good)}</div></div>` : ''}
-            ${msg.feedback.gap  ? `<div class="feedback-row"><div class="dot" style="background:#e05555"></div><div class="feedback-text">✗ ${escHtml(msg.feedback.gap)}</div></div>` : ''}
-            ${msg.feedback.tip  ? `<div class="feedback-row"><div class="dot" style="background:#c9a96e"></div><div class="feedback-text">→ ${escHtml(msg.feedback.tip)}</div></div>` : ''}
+            ${msg.feedback.gap  ? `<div class="feedback-row"><div class="dot" style="background:#e05555"></div><div class="feedback-text">✗ ${escHtml(msg.feedback.gap)}</div></div>`  : ''}
+            ${msg.feedback.tip  ? `<div class="feedback-row"><div class="dot" style="background:#c9a96e"></div><div class="feedback-text">→ ${escHtml(msg.feedback.tip)}</div></div>`  : ''}
           </div>`;
       }
       messagesHtml += `
@@ -200,6 +188,8 @@ function renderSession(session) {
     }
   });
 
+  const argCount = messages.filter(m => m.role === 'user').length;
+
   document.getElementById('content').innerHTML = `
     <div class="session-header">
       <div class="shared-badge">📤 Shared session</div>
@@ -209,12 +199,12 @@ function renderSession(session) {
           <span class="badge ${badgeClass[session.role] || ''}">${roleLabels[session.role] || 'AI'}</span>
         </span>
         <span class="info-chip">📅 ${date}</span>
-        <span class="info-chip">💬 ${messages.filter(m => m.role === 'user').length} arguments</span>
+        <span class="info-chip">💬 ${argCount} argument${argCount !== 1 ? 's' : ''}</span>
         <span class="info-chip">👤 ${escHtml(session.userName || 'Anonymous')}</span>
       </div>
     </div>
 
-    <div class="messages">${messagesHtml}</div>
+    <div class="messages">${messagesHtml || '<div style="text-align:center;padding:40px;color:var(--text3)">No messages in this session yet.</div>'}</div>
 
     <div class="cta-banner">
       <h3>Practice your own cases</h3>
