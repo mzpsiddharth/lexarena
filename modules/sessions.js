@@ -1,32 +1,44 @@
 // ══════════════════════════════════════════
 // sessions.js — All session CRUD & sidebar
 // Imports: state, firebase, ui, ai
+//
+// MESSAGES STORAGE: messages are stored in a
+// subcollection: sessions/{id}/messages/{msgId}
+// NOT as an array field on the session doc.
+// This avoids the Firestore 1MB document limit
+// for long sessions.
 // ══════════════════════════════════════════
 
 import { state, SUMMARY_UPDATE_INTERVAL } from './state.js';
 import { db }  from './firebase.js';
 import {
   collection, addDoc, getDocs, query, orderBy,
-  doc, updateDoc, arrayUnion, where, getDoc, deleteDoc
+  doc, updateDoc, where, getDoc, deleteDoc, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import {
   addMessageToChat, updateArgCounter, clearChatArea,
-  showWelcomeScreen, hideWelcomeScreen, switchRole, closeModal, escapeHtml
+  showWelcomeScreen, hideWelcomeScreen, switchRole, closeModal, escapeHtml, showToast
 } from './ui.js';
 import { getAIResponse, showWelcomeMessage, updateCaseSummary, sendImageToAI } from './ai.js';
 
 
 // ── SAVE MESSAGE ─────────────────────────
+// Writes to subcollection sessions/{id}/messages/{auto-id}
+// Timestamp used for ordering on load.
 export async function saveMessageToFirebase(role, text, feedback) {
   if (!state.currentSessionId) return;
   try {
-    await updateDoc(doc(db, 'sessions', state.currentSessionId), {
-      messages: arrayUnion({ role, text, feedback: feedback || null })
-    });
+    await addDoc(
+      collection(db, 'sessions', state.currentSessionId, 'messages'),
+      {
+        role,
+        text,
+        feedback:  feedback || null,
+        createdAt: new Date()
+      }
+    );
   } catch (e) {
     console.error('Error saving message:', e);
-    // Notify user — silent failure means they might think session is saved when it isn't
-    const { showToast } = await import('./ui.js');
     showToast('⚠️ Could not save message — check your connection');
   }
 }
@@ -58,7 +70,6 @@ export async function loadSessions() {
       addSessionToSidebar(s.name, s.role, docSnap.id, false);
     });
 
-    // Sidebar populated but no session selected — show welcome screen
     showWelcomeScreen();
 
   } catch (e) { console.error('Error loading sessions:', e); }
@@ -103,6 +114,7 @@ export function addSessionToSidebar(name, role, sessionId, isNew) {
 
 
 // ── LOAD SESSION ─────────────────────────
+// Reads messages from subcollection, ordered by createdAt.
 export async function loadSession(sessionId, name, role, element) {
   document.querySelectorAll('.session-item').forEach(item => item.classList.remove('active'));
   element.classList.add('active');
@@ -113,21 +125,28 @@ export async function loadSession(sessionId, name, role, element) {
   state.messagesSinceLastSummary = 0;
 
   document.getElementById('session-title-display').textContent = name;
-  switchRole(role, true); // silent — no toast when loading a session
+  switchRole(role, true);
   clearChatArea();
   hideWelcomeScreen();
 
   try {
+    // Load session metadata (caseSummary, savedReport, etc.)
     const sessionSnap = await getDoc(doc(db, 'sessions', sessionId));
     if (!sessionSnap.exists()) { showWelcomeMessage(saveMessageToFirebase); return; }
 
-    const saved = sessionSnap.data().messages || [];
-    if (saved.length === 0) {
+    // Load messages from subcollection
+    const messagesSnap = await getDocs(query(
+      collection(db, 'sessions', sessionId, 'messages'),
+      orderBy('createdAt', 'asc')
+    ));
+
+    if (messagesSnap.empty) {
       showWelcomeMessage(saveMessageToFirebase);
     } else {
-      saved.forEach(msg => {
+      messagesSnap.forEach(msgDoc => {
+        const msg = msgDoc.data();
         addMessageToChat(msg.role, msg.text, msg.feedback || null);
-        state.messages.push(msg);
+        state.messages.push({ role: msg.role, text: msg.text, feedback: msg.feedback || null });
       });
       updateArgCounter();
       state.caseSummary = sessionSnap.data().caseSummary || '';
@@ -156,11 +175,11 @@ window.createSession = async function() {
   nameInput.style.borderColor = '';
 
   try {
+    // Session doc no longer has a messages array — just metadata
     const docRef = await addDoc(collection(db, 'sessions'), {
       name:      sessionName,
       role:      state.currentRole,
       brief:     sessionBrief,
-      messages:  [],
       createdAt: new Date(),
       userId:    state.currentUser.uid,
       userName:  state.currentUser.displayName || 'Anonymous'
@@ -191,6 +210,7 @@ window.createSession = async function() {
 
 
 // ── DELETE SESSION ────────────────────────
+// Deletes the session doc AND all messages in the subcollection.
 async function deleteSession(sessionId, element) {
   const confirmed = await new Promise(function(resolve) {
     const overlay = document.createElement('div');
@@ -216,7 +236,13 @@ async function deleteSession(sessionId, element) {
   if (!confirmed) return;
 
   try {
+    // Delete all messages in subcollection first, then the session doc
+    const messagesSnap = await getDocs(collection(db, 'sessions', sessionId, 'messages'));
+    const batch        = writeBatch(db);
+    messagesSnap.forEach(msgDoc => batch.delete(msgDoc.ref));
+    await batch.commit();
     await deleteDoc(doc(db, 'sessions', sessionId));
+
     element.remove();
     if (state.currentSessionId === sessionId) {
       state.currentSessionId = null;
@@ -270,12 +296,11 @@ window.makeEditable = function(el) {
 // ── QUICK START ───────────────────────────
 window.quickStart = async function(name, role, brief) {
   if (!state.currentUser) return;
-  switchRole(role, true); // silent
+  switchRole(role, true);
 
   try {
     const docRef = await addDoc(collection(db, 'sessions'), {
       name, role, brief,
-      messages:  [],
       createdAt: new Date(),
       userId:    state.currentUser.uid,
       userName:  state.currentUser.displayName || 'Anonymous'
@@ -299,16 +324,14 @@ window.quickStart = async function(name, role, brief) {
 
 
 // ── SEND MESSAGE ─────────────────────────
-const SEND_COOLDOWN_MS = 3000; // minimum ms between requests — prevents Groq 429s
+const SEND_COOLDOWN_MS = 3000;
 
 window.sendMessage = async function() {
   if (state.isLoading) return;
 
-  // Client-side rate limit
   const now = Date.now();
   if (now - state.lastMessageTime < SEND_COOLDOWN_MS) {
     const wait = Math.ceil((SEND_COOLDOWN_MS - (now - state.lastMessageTime)) / 1000);
-    const { showToast } = await import('./ui.js');
     showToast('⏳ Please wait ' + wait + 's before sending again.');
     return;
   }
@@ -321,7 +344,6 @@ window.sendMessage = async function() {
   if (!text) { sendBtn.disabled = false; return; }
 
   state.lastMessageTime = Date.now();
-
   input.value        = '';
   input.style.height = 'auto';
 
@@ -343,8 +365,8 @@ window.handleMidSessionFile = async function(event) {
 
   const isPdf   = file.type === 'application/pdf';
   const isImage = file.type.startsWith('image/');
-  if (!isPdf && !isImage) { alert('Please upload a PDF or image file.'); return; }
-  if (file.size > 10 * 1024 * 1024) { alert('File too large. Max 10MB.'); return; }
+  if (!isPdf && !isImage) { showToast('Please upload a PDF or image file.'); return; }
+  if (file.size > 10 * 1024 * 1024) { showToast('File too large. Max 10MB.'); return; }
 
   addMessageToChat('user', '📎 Uploading ' + file.name + '...', null);
 
@@ -372,7 +394,6 @@ window.handleMidSessionFile = async function(event) {
         r.onerror = rej;
         r.readAsDataURL(file);
       });
-      // Show image in chat
       const chatArea = document.getElementById('chat-area');
       const imgDiv   = document.createElement('div');
       imgDiv.className = 'msg msg-user';
