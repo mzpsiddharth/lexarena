@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LexArena</title>
   <link rel="stylesheet" href="style.css">
+  <style>
+    .citation-warning{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 16px;background:rgba(201,169,110,0.07);border-top:1px solid rgba(201,169,110,0.2);font-size:11px;color:var(--text3);line-height:1.5}
+    .citation-warning button{background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 4px;flex-shrink:0;line-height:1}
+    .citation-warning button:hover{color:var(--text2)}
+  </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
@@ -161,6 +166,12 @@
     </div>
   </div>
      
+      </div>
+
+      <!-- Citation warning banner -->
+      <div class="citation-warning" id="citation-warning">
+        <span>⚠ AI citations are for practice only — verify against SCC Online, Manupatra, or bare acts before real proceedings.</span>
+        <button onclick="this.parentElement.style.display='none'" title="Dismiss">×</button>
       </div>
 
             <!-- Input area -->
