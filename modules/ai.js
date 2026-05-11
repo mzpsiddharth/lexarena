@@ -1,8 +1,6 @@
 // ══════════════════════════════════════════
 // ai.js — All Groq API calls
 // Imports: state, firebase, ui
-// Nothing imports ai.js except sessions,
-// score, and script — no circular risk.
 // ══════════════════════════════════════════
 
 import { state, GROQ_API_URL, systemPrompts, difficultyInstructions } from './state.js';
@@ -10,21 +8,45 @@ import { db }          from './firebase.js';
 import { doc, updateDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { addMessageToChat, showTypingIndicator, hideTypingIndicator } from './ui.js';
 
+// ── RAG — Fetch relevant law sections ────
+// Calls /api/rag with the user's argument.
+// Returns a formatted string to inject into the system prompt.
+// If RAG fails for any reason, returns '' — chat continues normally.
+async function fetchRelevantLaw(userMessage) {
+  try {
+    const response = await fetch('/api/rag', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: userMessage })
+    });
+
+    if (!response.ok) return '';
+
+    const data = await response.json();
+    if (!data.sections || data.sections.length === 0) return '';
+
+    // Format sections for injection into system prompt
+    const formatted = data.sections.map(s =>
+      `${s.act} Section ${s.section} — ${s.title}:\n${s.text}`
+    ).join('\n\n');
+
+    return '\n\nVERIFIED LAW SECTIONS — cite these accurately in your response if relevant:\n' + formatted;
+
+  } catch (e) {
+    // RAG failure is silent — never breaks main chat
+    console.warn('[LexArena] RAG fetch failed silently:', e.message);
+    return '';
+  }
+}
+
 // ── FEEDBACK PARSER ───────────────────────
-// Handles every output format the model produces:
-//   FEEDBACK: / Feedback: / **FEEDBACK:** /
-//   ### FEEDBACK / --- FEEDBACK / FEEDBACK\n
-// For each field: GOOD / GAP / TIP with or
-// without colon, bold markers, dash prefix.
 export function parseFeedback(fullText) {
-  // Broad regex — catches all known section header variants
   const sectionMatch = fullText.search(/(\*{0,2}#{0,3}-{0,3}\s*FEEDBACK[:\s])/i);
   if (sectionMatch === -1) return { mainText: fullText.trim(), feedback: null };
 
   const mainText     = fullText.substring(0, sectionMatch).trim();
   const feedbackText = fullText.substring(sectionMatch);
 
-  // Handles: GOOD: / **GOOD:** / - GOOD: / GOOD (no colon)
   function extract(text, fieldName) {
     const pattern = new RegExp(
       '(?:^|\\n)\\s*(?:\\*{0,2}|-|>)?\\s*\\*{0,2}' + fieldName + '\\*{0,2}:?\\s*([^\\n]+)',
@@ -41,7 +63,6 @@ export function parseFeedback(fullText) {
     tip:  extract(feedbackText, 'TIP')
   };
 
-  // All empty = unknown format — log raw text for debugging
   if (!feedback.good && !feedback.gap && !feedback.tip) {
     console.warn('[LexArena] Feedback section found but fields unparseable. Raw:', feedbackText.substring(0, 200));
     return { mainText: fullText.trim(), feedback: null };
@@ -72,30 +93,41 @@ export async function getAIResponse(userMessage, saveToFirebase) {
   showTypingIndicator();
 
   try {
-    const recentMessages     = state.messages.slice(-5);
+    // RAG: fetch verified law sections relevant to this argument
+    // Runs in parallel with building the prompt — adds ~300ms, not sequential
+    const [relevantLaw] = await Promise.all([
+      fetchRelevantLaw(userMessage)
+    ]);
+
+    const recentMessages      = state.messages.slice(-5);
     const conversationHistory = recentMessages.map(msg => ({
       role:    msg.role === 'user' ? 'user' : 'assistant',
       content: msg.text
     }));
 
+    // Build system prompt: role + difficulty + case summary + RAG sections
     const basePrompt = systemPrompts[state.currentRole]
       .replace('{DIFFICULTY}', difficultyInstructions[state.currentDifficulty]);
-    const systemPromptWithSummary = state.caseSummary
-      ? basePrompt + '\n\nCASE SUMMARY SO FAR:\n' + state.caseSummary
-      : basePrompt;
+
+    let systemPromptWithContext = basePrompt;
+    if (state.caseSummary) {
+      systemPromptWithContext += '\n\nCASE SUMMARY SO FAR:\n' + state.caseSummary;
+    }
+    if (relevantLaw) {
+      systemPromptWithContext += relevantLaw;
+    }
 
     const response = await fetch(GROQ_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model:       'llama-3.3-70b-versatile',
-        messages:    [{ role: 'system', content: systemPromptWithSummary }, ...conversationHistory],
+        messages:    [{ role: 'system', content: systemPromptWithContext }, ...conversationHistory],
         max_tokens:  500,
         temperature: 0.7
       })
     });
 
-    // Check HTTP status before parsing — proxy forwards Groq's 429/503 as status codes
     if (!response.ok) {
       const err = new Error('HTTP ' + response.status);
       err.status = response.status;
@@ -106,7 +138,7 @@ export async function getAIResponse(userMessage, saveToFirebase) {
     const aiText = data.choices[0].message.content;
     let parsed   = parseFeedback(aiText);
 
-    // Feedback retry — if the model forgot the feedback block, ask for it explicitly
+    // Feedback retry — if model forgot feedback block
     if (!parsed.feedback || (!parsed.feedback.good && !parsed.feedback.gap && !parsed.feedback.tip)) {
       try {
         const retryResponse = await fetch(GROQ_API_URL, {
@@ -188,7 +220,6 @@ export async function sendImageToAI(base64, mimeType, saveToFirebase) {
 
   } catch (error) {
     console.error('Image API Error:', error);
-    // Show actionable error instead of silent failure
     const status = error.status || 0;
     const msg = (status === 429)
       ? '⏳ Too many requests. Please wait a moment and try the image again.'
@@ -208,7 +239,7 @@ export async function sendImageToAI(base64, mimeType, saveToFirebase) {
 export async function updateCaseSummary() {
   if (state.messages.length < 6) return;
   try {
-    const roleLabels     = { judge: 'Judge', opposing: 'Opposing Counsel', supporting: 'Supporting Counsel' };
+    const roleLabels      = { judge: 'Judge', opposing: 'Opposing Counsel', supporting: 'Supporting Counsel' };
     const recentExchanges = state.messages.slice(-10).map(msg => {
       return (msg.role === 'user' ? 'LAWYER' : roleLabels[state.currentRole]) + ': ' + msg.text;
     }).join('\n\n');
@@ -224,11 +255,7 @@ export async function updateCaseSummary() {
       })
     });
 
-    if (!response.ok) {
-      // Summary failure is non-critical — log and continue, don't corrupt state
-      console.warn('Case summary update failed:', response.status);
-      return;
-    }
+    if (!response.ok) { console.warn('Case summary update failed:', response.status); return; }
 
     const data = await response.json();
     state.caseSummary              = data.choices[0].message.content.trim();
@@ -260,7 +287,7 @@ export async function generateScore(userMessages) {
   setTimeout(() => { const p = document.getElementById('score-progress'); if (p) p.style.width = '90%'; }, 100);
 
   try {
-    const roleLabels = { judge: 'Judge', opposing: 'Opposing Counsel', supporting: 'Supporting Counsel' };
+    const roleLabels  = { judge: 'Judge', opposing: 'Opposing Counsel', supporting: 'Supporting Counsel' };
     const transcript  = state.messages.map(msg =>
       (msg.role === 'user' ? 'STUDENT/LAWYER' : roleLabels[state.currentRole].toUpperCase()) + ': ' + msg.text
     ).join('\n\n');
@@ -278,16 +305,14 @@ export async function generateScore(userMessages) {
       })
     });
 
-    const data   = await response.json();
-    let reportText = data.choices[0].message.content;
-    reportText     = reportText.replace(/```json/g, '').replace(/```/g, '').trim();
+    const data      = await response.json();
+    let reportText  = data.choices[0].message.content;
+    reportText      = reportText.replace(/```json/g, '').replace(/```/g, '').trim();
 
-    // Extract JSON even if model wraps it in extra text
     const jsonMatch = reportText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('No JSON object found in score response');
+    if (!jsonMatch) throw new Error('No JSON found in score response');
     const report = JSON.parse(jsonMatch[0]);
 
-    // Validate required fields exist
     if (typeof report.score !== 'number' || !report.grade || !report.summary) {
       throw new Error('Score response missing required fields');
     }
@@ -321,17 +346,16 @@ function showApiError(error, saveToFirebase) {
   const errorDiv = document.createElement('div');
   errorDiv.className = 'msg msg-ai';
 
-  // Match on err.status (set by response.ok check) or fall back to string matching
   const status   = error.status || 0;
   const errorStr = (error.message || '') + JSON.stringify(error);
   let errorMsg, showRetry, retryDelay;
 
-  if      (status === 429 || errorStr.includes('429'))                             { errorMsg = '⏳ Too many requests. Please wait a moment before trying again.';          showRetry = true;  retryDelay = 15000; }
-  else if (status === 503 || status === 502 || errorStr.includes('503'))           { errorMsg = '🔧 AI servers temporarily busy. Retrying in 20 seconds...';               showRetry = true;  retryDelay = 20000; }
-  else if (status === 401 || status === 403)                                       { errorMsg = '🔑 Authentication error. Please refresh the page.';                       showRetry = false; }
-  else if (status === 500)                                                         { errorMsg = '⚠️ Server error. Please try again in a moment.';                           showRetry = true;  retryDelay = 5000; }
-  else if (errorStr.includes('fetch') || errorStr.includes('network') || errorStr.includes('Failed')) { errorMsg = '📶 Network error. Please check your internet connection.'; showRetry = true; retryDelay = 5000; }
-  else                                                                               { errorMsg = '⚠️ Something went wrong. Please try again.';                              showRetry = true;  retryDelay = 5000; }
+  if      (status === 429 || errorStr.includes('429'))                                                   { errorMsg = '⏳ Too many requests. Please wait a moment before trying again.';    showRetry = true;  retryDelay = 15000; }
+  else if (status === 503 || status === 502 || errorStr.includes('503'))                                 { errorMsg = '🔧 AI servers temporarily busy. Retrying in 20 seconds...';           showRetry = true;  retryDelay = 20000; }
+  else if (status === 401 || status === 403)                                                             { errorMsg = '🔑 Authentication error. Please refresh the page.';                   showRetry = false; }
+  else if (status === 500)                                                                               { errorMsg = '⚠️ Server error. Please try again in a moment.';                       showRetry = true;  retryDelay = 5000;  }
+  else if (errorStr.includes('fetch') || errorStr.includes('network') || errorStr.includes('Failed'))   { errorMsg = '📶 Network error. Please check your internet connection.';             showRetry = true;  retryDelay = 5000;  }
+  else                                                                                                   { errorMsg = '⚠️ Something went wrong. Please try again.';                          showRetry = true;  retryDelay = 5000;  }
 
   const lastUserMsg = [...state.messages].reverse().find(m => m.role === 'user');
 
@@ -355,7 +379,6 @@ function showApiError(error, saveToFirebase) {
   if (showRetry && lastUserMsg) {
     const prog = errorDiv.querySelector('#retry-progress');
     if (prog) { prog.style.transition = `width ${retryDelay}ms linear`; setTimeout(() => { prog.style.width = '100%'; }, 100); }
-
     const autoRetry = setTimeout(() => { errorDiv.remove(); getAIResponse(lastUserMsg.text, saveToFirebase); }, retryDelay);
     const retryBtn  = errorDiv.querySelector('#retry-btn');
     if (retryBtn) retryBtn.addEventListener('click', () => { clearTimeout(autoRetry); errorDiv.remove(); getAIResponse(lastUserMsg.text, saveToFirebase); });
