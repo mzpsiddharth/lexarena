@@ -20,22 +20,25 @@ async function fetchRelevantLaw(userMessage) {
       body: JSON.stringify({ query: userMessage })
     });
 
-    if (!response.ok) return '';
+    if (!response.ok) return { prompt: '', sections: [] };
 
     const data = await response.json();
-    if (!data.sections || data.sections.length === 0) return '';
+    if (!data.sections || data.sections.length === 0) return { prompt: '', sections: [] };
 
     // Format sections for injection into system prompt
     const formatted = data.sections.map(s =>
       `${s.act} Section ${s.section} — ${s.title}:\n${s.text}`
     ).join('\n\n');
 
-    return '\n\nVERIFIED LAW SECTIONS — cite these accurately in your response if relevant:\n' + formatted;
+    return {
+      prompt:   '\n\nVERIFIED LAW SECTIONS — cite these accurately in your response if relevant:\n' + formatted,
+      sections: data.sections   // passed through to UI for source chips
+    };
 
   } catch (e) {
     // RAG failure is silent — never breaks main chat
     console.warn('[LexArena] RAG fetch failed silently:', e.message);
-    return '';
+    return { prompt: '', sections: [] };
   }
 }
 
@@ -94,10 +97,7 @@ export async function getAIResponse(userMessage, saveToFirebase) {
 
   try {
     // RAG: fetch verified law sections relevant to this argument
-    // Runs in parallel with building the prompt — adds ~300ms, not sequential
-    const [relevantLaw] = await Promise.all([
-      fetchRelevantLaw(userMessage)
-    ]);
+    const { prompt: relevantLaw, sections: ragSections } = await fetchRelevantLaw(userMessage);
 
     const recentMessages      = state.messages.slice(-5);
     const conversationHistory = recentMessages.map(msg => ({
@@ -165,9 +165,9 @@ export async function getAIResponse(userMessage, saveToFirebase) {
       }
     }
 
-    state.messages.push({ role: 'ai', text: parsed.mainText, feedback: parsed.feedback });
+    state.messages.push({ role: 'ai', text: parsed.mainText, feedback: parsed.feedback, ragSections });
     await saveToFirebase('ai', parsed.mainText, parsed.feedback);
-    addMessageToChat('ai', parsed.mainText, parsed.feedback);
+    addMessageToChat('ai', parsed.mainText, parsed.feedback, ragSections);
 
   } catch (error) {
     console.error('API Error:', error);

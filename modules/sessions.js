@@ -9,11 +9,11 @@
 // for long sessions.
 // ══════════════════════════════════════════
 
-import { state, SUMMARY_UPDATE_INTERVAL } from './state.js';
+import { state, SUMMARY_UPDATE_INTERVAL, SEND_COOLDOWN_MS } from './state.js';
 import { db }  from './firebase.js';
 import {
   collection, addDoc, getDocs, query, orderBy,
-  doc, updateDoc, where, getDoc, deleteDoc, writeBatch
+  doc, updateDoc, where, getDoc, deleteDoc, writeBatch, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import {
   addMessageToChat, updateArgCounter, clearChatArea,
@@ -34,7 +34,7 @@ export async function saveMessageToFirebase(role, text, feedback) {
         role,
         text,
         feedback:  feedback || null,
-        createdAt: new Date()
+        createdAt: serverTimestamp()
       }
     );
   } catch (e) {
@@ -129,9 +129,22 @@ export async function loadSession(sessionId, name, role, element) {
   clearChatArea();
   hideWelcomeScreen();
 
+  // Show loading indicator while Firestore reads complete
+  const chatArea   = document.getElementById('chat-area');
+  const loadingDiv = document.createElement('div');
+  loadingDiv.id        = 'session-loading';
+  loadingDiv.className = 'msg msg-ai';
+  loadingDiv.innerHTML = `
+    <div class="msg-avatar ai-av">⚖</div>
+    <div class="msg-bubble">
+      <div class="typing-dots"><span></span><span></span><span></span></div>
+    </div>`;
+  chatArea.appendChild(loadingDiv);
+
   try {
     // Load session metadata (caseSummary, savedReport, etc.)
     const sessionSnap = await getDoc(doc(db, 'sessions', sessionId));
+    document.getElementById('session-loading')?.remove();
     if (!sessionSnap.exists()) { showWelcomeMessage(saveMessageToFirebase); return; }
 
     // Load messages from subcollection
@@ -150,9 +163,12 @@ export async function loadSession(sessionId, name, role, element) {
       });
       updateArgCounter();
       state.caseSummary = sessionSnap.data().caseSummary || '';
+      // Make saved AI report available to exportSession
+      window._exportSavedReport = sessionSnap.data().savedReport || null;
     }
   } catch (e) {
     console.error('Error loading session:', e);
+    document.getElementById('session-loading')?.remove();
     showWelcomeMessage(saveMessageToFirebase);
   }
 }
@@ -236,11 +252,17 @@ async function deleteSession(sessionId, element) {
   if (!confirmed) return;
 
   try {
-    // Delete all messages in subcollection first, then the session doc
+    // Delete all messages in subcollection first — chunk into batches of 500 (Firestore limit)
     const messagesSnap = await getDocs(collection(db, 'sessions', sessionId, 'messages'));
-    const batch        = writeBatch(db);
-    messagesSnap.forEach(msgDoc => batch.delete(msgDoc.ref));
-    await batch.commit();
+    const allMsgDocs   = [];
+    messagesSnap.forEach(msgDoc => allMsgDocs.push(msgDoc.ref));
+
+    for (let i = 0; i < allMsgDocs.length; i += 500) {
+      const batch = writeBatch(db);
+      allMsgDocs.slice(i, i + 500).forEach(ref => batch.delete(ref));
+      await batch.commit();
+    }
+
     await deleteDoc(doc(db, 'sessions', sessionId));
 
     element.remove();
@@ -275,7 +297,13 @@ window.makeEditable = function(el) {
     const newName = el.textContent.trim();
     el.contentEditable = false;
     el.style.background = el.style.borderRadius = el.style.padding = el.style.outline = '';
-    if (!newName || newName === orig) return;
+    // Only save if name changed AND user explicitly committed (Enter or intentional blur)
+    if (!newName || newName === orig || !el.dataset.renameConfirmed) {
+      el.textContent = orig;  // restore if bailed out
+      delete el.dataset.renameConfirmed;
+      return;
+    }
+    delete el.dataset.renameConfirmed;
     try {
       await updateDoc(doc(db, 'sessions', state.currentSessionId), { name: newName });
       document.querySelectorAll('.session-item').forEach(item => {
@@ -286,10 +314,14 @@ window.makeEditable = function(el) {
   }
 
   el.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') { e.preventDefault(); save(); }
+    if (e.key === 'Enter') { e.preventDefault(); el.dataset.renameConfirmed = '1'; save(); }
     if (e.key === 'Escape') { el.textContent = orig; el.contentEditable = false; el.style.background = el.style.outline = ''; }
   }, { once: true });
-  el.addEventListener('blur', save, { once: true });
+  // On blur: only save if it was a deliberate click-away (pointer inside document), not a tab switch
+  el.addEventListener('blur', function() {
+    if (document.hasFocus()) { el.dataset.renameConfirmed = '1'; }
+    save();
+  }, { once: true });
 };
 
 
@@ -297,6 +329,11 @@ window.makeEditable = function(el) {
 window.quickStart = async function(name, role, brief) {
   if (!state.currentUser) return;
   switchRole(role, true);
+
+  // Reset difficulty to intermediate for a clean start
+  state.currentDifficulty = 'intermediate';
+  const diffSel = document.getElementById('difficulty-select');
+  if (diffSel) diffSel.value = 'intermediate';
 
   try {
     const docRef = await addDoc(collection(db, 'sessions'), {
@@ -324,8 +361,6 @@ window.quickStart = async function(name, role, brief) {
 
 
 // ── SEND MESSAGE ─────────────────────────
-const SEND_COOLDOWN_MS = 3000;
-
 window.sendMessage = async function() {
   if (state.isLoading) return;
 
@@ -401,7 +436,7 @@ window.handleMidSessionFile = async function(event) {
         <div>
           <div class="msg-bubble user-bubble">
             <div style="font-size:12px;color:var(--text3);margin-bottom:8px">📎 ${escapeHtml(file.name)}</div>
-            <img src="data:image/jpeg;base64,${base64}" style="max-width:200px;border-radius:8px;display:block">
+            <img src="data:${file.type};base64,${base64}" style="max-width:200px;border-radius:8px;display:block">
           </div>
         </div>
         <div class="msg-avatar user-av">${state.userInitial || 'U'}</div>`;

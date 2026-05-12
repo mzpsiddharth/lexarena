@@ -15,6 +15,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 </head>
 <body>
+<a href="#chat-area" class="skip-link">Skip to conversation</a>
+<!-- Live region: screen readers announce new AI responses -->
+<div id="chat-live-region" aria-live="polite" aria-atomic="true" class="sr-only"></div>
 
 <!-- ══ LOGIN PAGE ══ -->
   <div id="login-page">
@@ -67,7 +70,7 @@
   <div id="app" class="hidden">
 
     <!-- ── SIDEBAR ── -->
-    <div class="sidebar">
+    <nav class="sidebar" aria-label="Sessions and navigation">
 
       <!-- Logo -->
       <div class="sidebar-header">
@@ -76,7 +79,7 @@
       </div>
 
       <!-- New session button -->
-      <button class="btn-new" onclick="openModal()">
+      <button class="btn-new" onclick="openModal()" aria-haspopup="dialog">
         + &nbsp; New session
       </button>
 
@@ -100,7 +103,7 @@
         </div>
       </div>
 
-    </div>
+    </nav>
 
 
     <!-- ── MAIN AREA ── -->
@@ -108,9 +111,9 @@
 
       <!-- Top bar -->
       <div class="topbar">
-  <button class="hamburger" onclick="toggleSidebar()">☰</button>
+  <button class="hamburger" onclick="toggleSidebar()" aria-label="Open sidebar" aria-expanded="false" aria-controls="sidebar">☰</button>
 <div style="display:flex;align-items:center;gap:10px;flex:1">
-  <div class="session-title-display" id="session-title-display" onclick="makeEditable(this)" title="Click to rename">Select a session</div>
+  <div class="session-title-display" id="session-title-display" onclick="makeEditable(this)" title="Click to rename" role="button" tabindex="0" aria-label="Session title, click to rename">Select a session</div>
   <div class="arg-counter hidden" id="arg-counter">
     <span id="arg-count">0</span> arguments
   </div>
@@ -121,20 +124,20 @@
   <option value="intermediate" selected>🟡 Intermediate</option>
   <option value="expert">🔴 Expert</option>
 </select>
-      <button class="btn-score" onclick="showScoreCard()">📊 Score</button>
-<button class="btn-score" onclick="exportSession()">📥 Export</button>
-<button class="btn-score" onclick="shareSession()">🔗 Share</button>
+      <button class="btn-score" onclick="showScoreCard()" aria-label="Show performance score card">📊 Score</button>
+<button class="btn-score" onclick="exportSession()" aria-label="Export session as PDF">📥 Export</button>
+<button class="btn-score" onclick="shareSession()" aria-label="Share session link">🔗 Share</button>
 
       <!-- Role switcher buttons -->
       <div class="role-switcher">
-          <button class="role-btn" id="btn-judge" onclick="switchRole('judge')">⚖ Judge</button>
-          <button class="role-btn role-active-opposing" id="btn-opposing" onclick="switchRole('opposing')">⚔ Opposing</button>
-          <button class="role-btn" id="btn-supporting" onclick="switchRole('supporting')">🤝 Supporting</button>
+          <button class="role-btn" id="btn-judge" onclick="switchRole('judge')" aria-pressed="false" aria-label="Switch to Judge role">⚖ Judge</button>
+          <button class="role-btn role-active-opposing" id="btn-opposing" onclick="switchRole('opposing')" aria-pressed="true" aria-label="Switch to Opposing Counsel role">⚔ Opposing</button>
+          <button class="role-btn" id="btn-supporting" onclick="switchRole('supporting')" aria-pressed="false" aria-label="Switch to Supporting Counsel role">🤝 Supporting</button>
         </div>
       </div>
 
       <!-- Chat messages area -->
-<div class="chat-area" id="chat-area">
+<main class="chat-area" id="chat-area" role="log" aria-label="Courtroom conversation" aria-live="off">
 
   <!-- Welcome screen — shown when no session is active -->
   <div id="welcome-screen">
@@ -166,7 +169,7 @@
     </div>
   </div>
      
-      </div>
+      </main>
 
       <!-- Citation warning banner -->
       <div class="citation-warning" id="citation-warning">
@@ -177,7 +180,7 @@
             <!-- Input area -->
       <div class="input-area">
         <div class="input-wrap">
-  <button class="attach-btn" onclick="document.getElementById('mid-session-file').click()" title="Attach PDF or image">
+  <button class="attach-btn" onclick="document.getElementById('mid-session-file').click()" title="Attach PDF or image" aria-label="Attach PDF or image">
     +
   </button>
   <input type="file" id="mid-session-file" accept=".pdf,image/*" style="display:none" onchange="handleMidSessionFile(event)">
@@ -185,8 +188,9 @@
     id="msg-input" 
     rows="1" 
     placeholder="Present your argument, cite sections, make your case..."
+    aria-label="Your argument"
   ></textarea>
-  <button class="send-btn" id="send-btn" onclick="sendMessage()">
+  <button class="send-btn" id="send-btn" onclick="sendMessage()" aria-label="Send argument">
     ➤
   </button>
 </div>
@@ -201,9 +205,9 @@
 
 
   <!-- ══ NEW SESSION MODAL (hidden) ══ -->
-  <div id="modal" class="modal-overlay hidden">
+  <div id="modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-hidden="true">
     <div class="modal">
-      <div class="modal-title">New practice session</div>
+      <div class="modal-title" id="modal-title">New practice session</div>
       <div class="modal-sub">Choose your case scenario and the AI role to practice against.</div>
 
       <label class="field-label">Session name</label>
@@ -214,17 +218,17 @@
 
       <label class="field-label">AI plays the role of</label>
       <div class="role-grid">
-        <div class="role-option" id="opt-judge" onclick="selectRole('judge')">
+        <div class="role-option" id="opt-judge" onclick="selectRole('judge')" role="button" tabindex="0" aria-pressed="false">
           <div class="role-icon">⚖</div>
           <div class="role-name" style="color:#7b9cff">Judge</div>
           <div class="role-desc">Strict questioning, tests legal reasoning</div>
         </div>
-        <div class="role-option role-sel-opposing" id="opt-opposing" onclick="selectRole('opposing')">
+        <div class="role-option role-sel-opposing" id="opt-opposing" onclick="selectRole('opposing')" role="button" tabindex="0" aria-pressed="true">
           <div class="role-icon">⚔</div>
           <div class="role-name" style="color:#e07a5f">Opposing counsel</div>
           <div class="role-desc">Challenges arguments, cross-examines</div>
         </div>
-        <div class="role-option" id="opt-supporting" onclick="selectRole('supporting')">
+        <div class="role-option" id="opt-supporting" onclick="selectRole('supporting')" role="button" tabindex="0" aria-pressed="false">
           <div class="role-icon">🤝</div>
           <div class="role-name" style="color:#52b788">Supporting counsel</div>
           <div class="role-desc">Helps build stronger arguments</div>

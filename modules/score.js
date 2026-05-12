@@ -42,6 +42,8 @@ window.showScoreCard = async function() {
 
 // ── SHOW SAVED REPORT ─────────────────────
 function showSavedReport(report, currentArgCount, scoredAtArgCount) {
+  // Make the AI-generated report available to exportSession for consistent scoring
+  window._exportSavedReport = report;
   const roleLabels  = { judge: 'Judge', opposing: 'Opposing Counsel', supporting: 'Supporting Counsel' };
   const sessionName = document.getElementById('session-title-display').textContent;
   const scoreColor  = report.score >= 8 ? '#4caf7d' : report.score >= 6 ? '#c9a96e' : '#e07a5f';
@@ -306,21 +308,34 @@ window.exportSession = function() {
     pdf.setFontSize(11); pdf.setTextColor(201,169,110); pdf.setFont('helvetica','bold');
     pdf.text('PERFORMANCE SUMMARY', margin+5, y+6);
 
-    const good  = scored.filter(m=>m.feedback&&m.feedback.good).length;
-    const gap   = scored.filter(m=>m.feedback&&m.feedback.gap).length;
-    const total = good + gap;
-    const score = total > 0 ? Math.round((good/total)*10) : 5;
-    const grade = score>=8?'A':score>=6?'B':score>=5?'C+':'C';
+    // Use the AI-generated report score if it exists, otherwise show argument ratio
+    const savedScore  = window._exportSavedReport;
+    let score, grade, scoreLabel;
+    if (savedScore && typeof savedScore.score === 'number') {
+      score      = savedScore.score;
+      grade      = savedScore.grade || (score>=8?'A':score>=6?'B':score>=5?'C+':'C');
+      scoreLabel = 'AI score';
+    } else {
+      const good  = scored.filter(m=>m.feedback&&m.feedback.good).length;
+      const gap   = scored.filter(m=>m.feedback&&m.feedback.gap).length;
+      const total = good + gap;
+      score      = total > 0 ? Math.round((good/total)*10) : 5;
+      grade      = score>=8?'A':score>=6?'B':score>=5?'C+':'C';
+      scoreLabel = 'Ratio score';
+    }
 
     pdf.setFontSize(28); pdf.setTextColor(255,255,255); pdf.setFont('helvetica','bold');
     pdf.text(score+'/10', margin+5, y+24);
     pdf.setFontSize(18); pdf.setTextColor(201,169,110);
     pdf.text(grade, margin+42, y+24);
 
+    const good  = scored.filter(m=>m.feedback&&m.feedback.good).length;
+    const gap   = scored.filter(m=>m.feedback&&m.feedback.gap).length;
     pdf.setFontSize(9); pdf.setFont('helvetica','normal');
-    pdf.setTextColor(140,210,140); pdf.text('Strong: '+good,   margin+5,  y+34);
-    pdf.setTextColor(210,120,120); pdf.text('Gaps: '+gap,      margin+35, y+34);
+    pdf.setTextColor(140,210,140); pdf.text('Strong: '+good,          margin+5,  y+34);
+    pdf.setTextColor(210,120,120); pdf.text('Gaps: '+gap,             margin+35, y+34);
     pdf.setTextColor(160,160,180); pdf.text('Exchanges: '+scored.length, margin+62, y+34);
+    pdf.setTextColor(120,120,150); pdf.text('('+scoreLabel+')',       margin+5,  y+40);
     y += 52;
   }
 
@@ -352,22 +367,24 @@ window.shareSession = async function() {
           ${shareUrl}
         </div>
         <div style="display:flex;gap:10px">
-          <button class="btn-primary" onclick="copyShareLink('${shareUrl}',this)" style="flex:2">Copy link</button>
-          <button class="btn-cancel"  onclick="this.closest('.modal-overlay').remove()" style="flex:1">Close</button>
+          <button class="btn-primary" id="copy-share-link-btn" style="flex:2">Copy link</button>
+          <button class="btn-cancel"  id="close-share-btn" style="flex:1">Close</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
     overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.getElementById('close-share-btn').addEventListener('click', () => overlay.remove());
+    document.getElementById('copy-share-link-btn').addEventListener('click', function() {
+      navigator.clipboard.writeText(shareUrl).then(() => {
+        this.textContent      = '✓ Copied!';
+        this.style.background = 'var(--supporting)';
+        setTimeout(() => { this.textContent = 'Copy link'; this.style.background = ''; }, 2000);
+      });
+    });
   } catch (e) {
     console.error('Error sharing session:', e);
     showToast('Error generating share link. Please try again.');
   }
 };
 
-window.copyShareLink = function(url, btn) {
-  navigator.clipboard.writeText(url).then(function() {
-    btn.textContent      = '✓ Copied!';
-    btn.style.background = 'var(--supporting)';
-    setTimeout(() => { btn.textContent = 'Copy link'; btn.style.background = ''; }, 2000);
-  });
-};
+// copyShareLink removed — share modal now uses inline addEventListener closure
