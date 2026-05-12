@@ -28,11 +28,16 @@
 }
 
 /* ── BODY ── */
+/* overflow:hidden on html+body locks scroll to .chat-area only — prevents
+   blank space appearing below the input bar when content grows. */
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
 body {
   font-family: var(--font);
   background: var(--bg);
   color: var(--text);
-  min-height: 100vh;
   font-size: 14px;
 }
 
@@ -193,7 +198,8 @@ body {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  /* height is inherited from flex parent #app {height:100vh} — do not set explicitly */
+  overflow: hidden;
 }
 
 .sidebar-header {
@@ -370,7 +376,7 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  min-height: 0;      /* critical: allows flex child to shrink below content height */
   overflow: hidden;
 }
 
@@ -436,6 +442,7 @@ body {
 /* ── CHAT AREA ── */
 .chat-area {
   flex: 1;
+  min-height: 0;      /* allows flex:1 to actually shrink — without this, content overflows body */
   overflow-y: auto;
   padding: 24px;
   display: flex;

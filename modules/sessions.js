@@ -277,7 +277,10 @@ async function deleteSession(sessionId, element) {
     if (list.children.length === 0) {
       list.innerHTML = '<div style="padding:10px 16px;color:var(--text3);font-size:12px">No sessions yet. Create one!</div>';
     }
-  } catch (e) { console.error('Error deleting session:', e); }
+  } catch (e) {
+    console.error('Error deleting session:', e);
+    showToast('⚠ Could not delete session — check console for details');
+  }
 }
 
 
