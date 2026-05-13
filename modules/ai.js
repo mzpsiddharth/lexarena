@@ -166,7 +166,7 @@ export async function getAIResponse(userMessage, saveToFirebase) {
     }
 
     state.messages.push({ role: 'ai', text: parsed.mainText, feedback: parsed.feedback, ragSections });
-    await saveToFirebase('ai', parsed.mainText, parsed.feedback);
+    await saveToFirebase('ai', parsed.mainText, parsed.feedback, ragSections);
     addMessageToChat('ai', parsed.mainText, parsed.feedback, ragSections);
 
   } catch (error) {
@@ -194,7 +194,7 @@ export async function sendImageToAI(base64, mimeType, saveToFirebase) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model:    'llama-3.2-11b-vision-preview',
+        model:    'meta-llama/llama-4-scout-17b-16e-instruct',
         messages: [
           { role: 'system', content: systemPrompts[state.currentRole].replace('{DIFFICULTY}', difficultyInstructions[state.currentDifficulty]) },
           { role: 'user', content: [

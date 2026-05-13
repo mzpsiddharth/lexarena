@@ -283,6 +283,10 @@ export function initKeyboard(sendMessage) {
     this.style.height = 'auto';
     this.style.height = Math.min(this.scrollHeight, 140) + 'px';
   });
+  // Initialise role button UI to match state.currentRole (default: opposing)
+  // This runs once on boot — ensures aria-pressed and active class are correct
+  // from the first render without relying on hardcoded HTML attributes.
+  switchRole(state.currentRole, true);
 }
 
 // ── MOBILE SIDEBAR ────────────────────────

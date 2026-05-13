@@ -158,8 +158,8 @@ export async function loadSession(sessionId, name, role, element) {
     } else {
       messagesSnap.forEach(msgDoc => {
         const msg = msgDoc.data();
-        addMessageToChat(msg.role, msg.text, msg.feedback || null);
-        state.messages.push({ role: msg.role, text: msg.text, feedback: msg.feedback || null });
+        addMessageToChat(msg.role, msg.text, msg.feedback || null, msg.ragSections || null);
+        state.messages.push({ role: msg.role, text: msg.text, feedback: msg.feedback || null, ragSections: msg.ragSections || null });
       });
       updateArgCounter();
       state.caseSummary = sessionSnap.data().caseSummary || '';
@@ -277,10 +277,7 @@ async function deleteSession(sessionId, element) {
     if (list.children.length === 0) {
       list.innerHTML = '<div style="padding:10px 16px;color:var(--text3);font-size:12px">No sessions yet. Create one!</div>';
     }
-  } catch (e) {
-    console.error('Error deleting session:', e);
-    showToast('⚠ Could not delete session — check console for details');
-  }
+  } catch (e) { console.error('Error deleting session:', e); }
 }
 
 

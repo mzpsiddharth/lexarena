@@ -69,7 +69,7 @@ module.exports = async function handler(req, res) {
   // Whitelist allowed models — prevents the proxy being used as a general Groq relay
   const allowedModels = [
     'llama-3.3-70b-versatile',
-    'llama-3.2-11b-vision-preview'
+    'meta-llama/llama-4-scout-17b-16e-instruct'
   ];
   if (!allowedModels.includes(body.model)) {
     return res.status(400).json({ error: 'Model not allowed' });
