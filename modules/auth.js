@@ -142,7 +142,7 @@ function showDisclaimerModal(uid) {
         <div style="font-size:12px;color:var(--accent);font-weight:600;letter-spacing:1px;
           text-transform:uppercase;margin-bottom:10px">⚠ Important disclaimer</div>
         <div style="font-size:13px;color:var(--text2);line-height:1.8">
-          LexArena is an <strong style="color:var(--text)">AI-powered practice tool</strong>,
+          NyayArena is an <strong style="color:var(--text)">AI-powered practice tool</strong>,
           not a source of legal advice.<br><br>
           • AI-generated case citations and section references <strong style="color:var(--text)">may be inaccurate</strong>
             — always verify against official sources (bare acts, SCC Online, Manupatra).<br><br>
