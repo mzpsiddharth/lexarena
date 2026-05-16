@@ -5,14 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NyayArena</title>
   <link rel="stylesheet" href="style.css">
-  <style>
-    .citation-warning{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 16px;background:rgba(201,169,110,0.07);border-top:1px solid rgba(201,169,110,0.2);font-size:11px;color:var(--text3);line-height:1.5}
-    .citation-warning button{background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 4px;flex-shrink:0;line-height:1}
-    .citation-warning button:hover{color:var(--text2)}
-  </style>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
 <a href="#chat-area" class="skip-link">Skip to conversation</a>
@@ -74,7 +70,7 @@
 
       <!-- Logo -->
       <div class="sidebar-header">
-        <div class="logo">⚖ NyayArena</div>
+        <a href="index.html" class="logo" style="text-decoration:none">⚖ NyayArena</a>
         <div class="sidebar-sub">Courtroom Simulator</div>
       </div>
 
@@ -220,17 +216,17 @@
       <div class="role-grid">
         <div class="role-option" id="opt-judge" onclick="selectRole('judge')" role="button" tabindex="0" aria-pressed="false">
           <div class="role-icon">⚖</div>
-          <div class="role-name" style="color:#7b9cff">Judge</div>
+          <div class="role-name" style="color:var(--judge)">Judge</div>
           <div class="role-desc">Strict questioning, tests legal reasoning</div>
         </div>
         <div class="role-option role-sel-opposing" id="opt-opposing" onclick="selectRole('opposing')" role="button" tabindex="0" aria-pressed="true">
           <div class="role-icon">⚔</div>
-          <div class="role-name" style="color:#e07a5f">Opposing counsel</div>
+          <div class="role-name" style="color:var(--opposing)">Opposing counsel</div>
           <div class="role-desc">Challenges arguments, cross-examines</div>
         </div>
         <div class="role-option" id="opt-supporting" onclick="selectRole('supporting')" role="button" tabindex="0" aria-pressed="false">
           <div class="role-icon">🤝</div>
-          <div class="role-name" style="color:#52b788">Supporting counsel</div>
+          <div class="role-name" style="color:var(--supporting)">Supporting counsel</div>
           <div class="role-desc">Helps build stronger arguments</div>
         </div>
       </div>
