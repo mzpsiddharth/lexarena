@@ -93,8 +93,8 @@
     .hero > *{position:relative;z-index:1}
     .hero-badge{
       display:inline-flex;align-items:center;gap:8px;
-      background:rgba(201,169,110,0.1);
-      border:1px solid rgba(201,169,110,0.25);
+      background:rgba(124,92,62,0.08);
+      border:1px solid rgba(124,92,62,0.2);
       border-radius:20px;padding:6px 16px;
       font-size:12px;color:var(--accent);
       letter-spacing:1px;text-transform:uppercase;
@@ -881,12 +881,8 @@ function runDemoAnimation() {
         // Step 3: second AI message typewrite
         showEl(m3, 600, function() {
           typeText(t3, MSG3_TEXT, 16, function() {
-  const fb = document.getElementById('demo-feedback');
-  if (fb) {
-    setTimeout(() => {
-      fb.classList.add('show');
-    }, 200); // small delay = AI thinking feel
-  }
+  // fb already declared in outer scope
+  if (fb) setTimeout(() => fb.classList.add('show'), 200);
 });
         });
       });
@@ -920,17 +916,19 @@ function activateSkipAll() {
   // 3. Disable animations globally
   document.body.classList.add('no-animations');
 
-  // 4. Update button UI
+  // 4. Update button UI + dismiss banner after short delay
   if (globalSkipBtn) {
-    globalSkipBtn.textContent = '✓ Animations off';
+    globalSkipBtn.textContent = '✓ Off';
     globalSkipBtn.classList.add('active');
     globalSkipBtn.disabled = true;
   }
+  const banner = document.getElementById('anim-banner');
+  if (banner) setTimeout(function() {
+    banner.classList.add('dismissed');
+    document.body.classList.add('banner-dismissed');
+  }, 700);
 }
 
-
-
-  
 
 if (globalSkipBtn) {
   globalSkipBtn.addEventListener('click', activateSkipAll);

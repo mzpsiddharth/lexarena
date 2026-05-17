@@ -5,10 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NyayArena</title>
   <link rel="stylesheet" href="style.css">
-
+  <style>
+    .citation-warning{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 16px;background:rgba(201,169,110,0.07);border-top:1px solid rgba(201,169,110,0.2);font-size:11px;color:var(--text3);line-height:1.5}
+    .citation-warning button{background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 4px;flex-shrink:0;line-height:1}
+    .citation-warning button:hover{color:var(--text2)}
+  </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 </head>
 <body>
 <a href="#chat-area" class="skip-link">Skip to conversation</a>
@@ -70,7 +74,7 @@
 
       <!-- Logo -->
       <div class="sidebar-header">
-        <a href="index.html" class="logo" style="text-decoration:none">⚖ NyayArena</a>
+        <div class="logo">⚖ NyayArena</div>
         <div class="sidebar-sub">Courtroom Simulator</div>
       </div>
 
@@ -123,6 +127,14 @@
       <button class="btn-score" onclick="showScoreCard()" aria-label="Show performance score card">📊 Score</button>
 <button class="btn-score" onclick="exportSession()" aria-label="Export session as PDF">📥 Export</button>
 <button class="btn-score" onclick="shareSession()" aria-label="Share session link">🔗 Share</button>
+<!-- Mobile overflow menu for Export + Share -->
+<div class="mobile-more-wrap" style="position:relative;display:none">
+  <button class="btn-score" id="mobile-more-btn" onclick="document.getElementById('mobile-more-menu').classList.toggle('open')" aria-label="More options">⋯</button>
+  <div id="mobile-more-menu" style="display:none;position:absolute;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px;z-index:50;min-width:140px;box-shadow:0 4px 16px rgba(0,0,0,0.12)">
+    <button onclick="exportSession();document.getElementById('mobile-more-menu').classList.remove('open')" style="display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;padding:10px 12px;font-family:var(--font);font-size:13px;color:var(--text2);cursor:pointer;border-radius:6px;text-align:left" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">📥 Export PDF</button>
+    <button onclick="shareSession();document.getElementById('mobile-more-menu').classList.remove('open')" style="display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;padding:10px 12px;font-family:var(--font);font-size:13px;color:var(--text2);cursor:pointer;border-radius:6px;text-align:left" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='none'">🔗 Share</button>
+  </div>
+</div>
 
       <!-- Role switcher buttons -->
       <div class="role-switcher">
@@ -216,17 +228,17 @@
       <div class="role-grid">
         <div class="role-option" id="opt-judge" onclick="selectRole('judge')" role="button" tabindex="0" aria-pressed="false">
           <div class="role-icon">⚖</div>
-          <div class="role-name" style="color:var(--judge)">Judge</div>
+          <div class="role-name" style="color:#7b9cff">Judge</div>
           <div class="role-desc">Strict questioning, tests legal reasoning</div>
         </div>
         <div class="role-option role-sel-opposing" id="opt-opposing" onclick="selectRole('opposing')" role="button" tabindex="0" aria-pressed="true">
           <div class="role-icon">⚔</div>
-          <div class="role-name" style="color:var(--opposing)">Opposing counsel</div>
+          <div class="role-name" style="color:#e07a5f">Opposing counsel</div>
           <div class="role-desc">Challenges arguments, cross-examines</div>
         </div>
         <div class="role-option" id="opt-supporting" onclick="selectRole('supporting')" role="button" tabindex="0" aria-pressed="false">
           <div class="role-icon">🤝</div>
-          <div class="role-name" style="color:var(--supporting)">Supporting counsel</div>
+          <div class="role-name" style="color:#52b788">Supporting counsel</div>
           <div class="role-desc">Helps build stronger arguments</div>
         </div>
       </div>
@@ -240,6 +252,25 @@
 
 <div class="mobile-overlay" id="mobile-overlay" onclick="closeSidebar()"></div>
  <!-- Firebase -->
+  <script>
+  // Mobile more menu — close on outside click
+  document.addEventListener('click', function(e) {
+    const menu = document.getElementById('mobile-more-menu');
+    const btn  = document.getElementById('mobile-more-btn');
+    if (menu && btn && !btn.contains(e.target) && !menu.contains(e.target)) {
+      menu.classList.remove('open');
+    }
+  });
+  // mobile-more-menu open class just controls display
+  document.addEventListener('DOMContentLoaded', function() {
+    const menu = document.getElementById('mobile-more-menu');
+    if (!menu) return;
+    const observer = new MutationObserver(function() {
+      menu.style.display = menu.classList.contains('open') ? 'block' : 'none';
+    });
+    observer.observe(menu, { attributes: true, attributeFilter: ['class'] });
+  });
+  </script>
   <script type="module" src="script.js"></script>
 </body>
 </html>
