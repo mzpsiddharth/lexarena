@@ -65,7 +65,7 @@
   <div id="app" class="hidden">
 
     <!-- ── SIDEBAR ── -->
-   <nav class="sidebar" id="sidebar" aria-label="Sessions and navigation">
+    <nav class="sidebar" aria-label="Sessions and navigation">
 
       <!-- Logo -->
       <div class="sidebar-header">
@@ -263,29 +263,6 @@
   document.addEventListener('click', function(e) {
     if (!e.target.closest('.mobile-more-wrap')) closeMobileMenu();
   });
-  function toggleSidebar() {
-    const sidebar = document.querySelector('.sidebar');
-    const overlay = document.getElementById('mobile-overlay');
-    const btn = document.querySelector('.hamburger');
-
-    const isOpen = sidebar.classList.toggle('mobile-open');
-
-    if (overlay) {
-      overlay.classList.toggle('active', isOpen);
-    }
-
-    if (btn) {
-      btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-    }
-  }
-
-  function closeSidebar() {
-    document.querySelector('.sidebar').classList.remove('mobile-open');
-    document.getElementById('mobile-overlay').classList.remove('active');
-
-    const btn = document.querySelector('.hamburger');
-    if (btn) btn.setAttribute('aria-expanded', 'false');
-  }
   </script>
   <script type="module" src="script.js"></script>
 </body>
