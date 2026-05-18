@@ -147,6 +147,7 @@ export async function getAIResponse(userMessage, saveToFirebase) {
           body: JSON.stringify({
             model:       'llama-3.3-70b-versatile',
             messages:    [
+              { role: 'system',    content: systemPromptWithContext },
               { role: 'user',      content: userMessage },
               { role: 'assistant', content: aiText },
               { role: 'user',      content: 'You forgot to include the feedback block. Please provide ONLY the feedback in this exact format, nothing else:\nFEEDBACK:\nGOOD: [what was done well]\nGAP: [what was missing]\nTIP: [one improvement]' }

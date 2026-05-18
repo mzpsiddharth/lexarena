@@ -137,7 +137,7 @@ function showDisclaimerModal(uid) {
       <div style="font-size:32px;margin-bottom:12px;text-align:center">⚖️</div>
       <div class="modal-title" style="margin-bottom:8px;text-align:center">Before you begin</div>
 
-      <div style="background:rgba(201,169,110,0.08);border:1px solid rgba(201,169,110,0.25);
+      <div style="background:rgba(124,92,62,0.06);border:1px solid rgba(124,92,62,0.2);
         border-radius:10px;padding:16px;margin-bottom:20px">
         <div style="font-size:12px;color:var(--accent);font-weight:600;letter-spacing:1px;
           text-transform:uppercase;margin-bottom:10px">⚠ Important disclaimer</div>
